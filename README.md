@@ -2,7 +2,14 @@
 
 **WORK-IN-PROGRESS** - This is still a prototype and is not (yet) fully compliant with the OpenXR spec.
 
-A simulator for the [ox](https://github.com/ox-runtime/ox) OpenXR runtime. This can help test and emulate different VR devices (Quest, Vive, Index, Vive trackers, etc.) programmatically with runtime device switching.
+A fully open-source simulator for OpenXR. This can help test OpenXR apps with simulated VR devices (Quest, Vive, Index, Vive trackers, etc.).
+
+You can either use the graphical interface, or use the API server to test programmatically in any language (by setting the device states and checking for the expected outcome).
+
+Supports Windows, Linux and Mac. Backends: Vulkan, OpenGL, Metal.
+
+<img height="350" alt="ox-sim dark on Windows" src="https://github.com/user-attachments/assets/dcad53f0-9339-4523-9e4d-32f39e4ae6be" />
+
 
 ## Purpose
 
