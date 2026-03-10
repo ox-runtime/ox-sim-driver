@@ -20,14 +20,31 @@ This simulator allows developers to test OpenXR applications without physical ha
 
 1. Clone this repository using `git clone https://github.com/ox-runtime/ox-simulator`
 2. Download [ox_driver.h](https://github.com/ox-runtime/ox/releases/latest/download/ox_driver.h) and place it inside this folder.
-3. Compile using `cmake`:
+3. Install platform dependencies:
+
+```bash
+# Ubuntu / Debian
+sudo apt-get update
+sudo apt-get install -y \
+  libgl1-mesa-dev \
+  libx11-dev \
+  libxrandr-dev \
+  libxinerama-dev \
+  libxcursor-dev \
+  libxi-dev \
+  pkg-config
+```
+
+Windows and macOS GitHub runners already provide the required system frameworks.
+
+4. Compile using `cmake`:
 
 ```bash
 cmake -B build
 cmake --build build --config Release
 ```
 
-4. Your driver will be built inside `build/ox_simulator`.
+5. Your driver will be built inside `build/ox_simulator`.
 
 ## Installation
 

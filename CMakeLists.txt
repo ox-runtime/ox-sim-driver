@@ -6,8 +6,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(OUTPUT_FOLDER "ox_simulator")
 
-# Find OpenGL for GUI
-find_package(OpenGL REQUIRED)
+# Prefer GLVND on Linux so FindOpenGL resolves the split libOpenGL/libGLX packages
+# used on modern distributions and GitHub runners.
+if(UNIX AND NOT APPLE)
+    set(OpenGL_GL_PREFERENCE GLVND)
+endif()
 
 # Add subdirectories
 add_subdirectory(src/api)

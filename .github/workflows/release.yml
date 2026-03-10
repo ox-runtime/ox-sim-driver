@@ -19,6 +19,19 @@ jobs:
     - name: Download ox_driver.h
       run: curl -L -o ox_driver.h https://github.com/ox-runtime/ox/releases/latest/download/ox_driver.h
 
+    - name: Install Linux build dependencies
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libgl1-mesa-dev \
+          libx11-dev \
+          libxrandr-dev \
+          libxinerama-dev \
+          libxcursor-dev \
+          libxi-dev \
+          pkg-config
+
     - name: Build
       run: |
         cmake -B build -DCMAKE_BUILD_TYPE=Release
