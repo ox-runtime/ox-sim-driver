@@ -96,6 +96,9 @@ struct DeviceProfile {
 // Get device profile by type
 const DeviceProfile& GetDeviceProfile(DeviceType type);
 
+// Get the stable external identifier for a device type
+const char* GetDeviceProfileId(DeviceType type);
+
 // Get device profile by name (for config file)
 const DeviceProfile* GetDeviceProfileByName(const std::string& name);
 

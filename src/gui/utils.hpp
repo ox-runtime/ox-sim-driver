@@ -36,7 +36,7 @@ inline std::filesystem::path GetExecutableDir() {
     return std::filesystem::path();
 }
 
-inline std::filesystem::path GetRuntimeJsonPath() { return GetExecutableDir() / "ox_openxr.json"; }
+inline std::filesystem::path GetRuntimeJsonPath() { return GetExecutableDir() / "ox_runtime.json"; }
 
 static void SetAsOpenXRRuntime(std::string& status_message) {
     auto runtime_json = GetRuntimeJsonPath();

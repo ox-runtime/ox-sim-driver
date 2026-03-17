@@ -1,6 +1,7 @@
 #include "simulator_core.h"
 
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <unordered_map>
 
@@ -77,14 +78,13 @@ bool SimulatorCore::Initialize(const DeviceProfile* profile) {
     profile_ = profile;
 
     // Initialize devices from profile
-    state_.device_count = std::min(static_cast<size_t>(OX_MAX_DEVICES), profile->devices.size());
+    state_.device_count = static_cast<uint32_t>(std::min(static_cast<size_t>(OX_MAX_DEVICES), profile->devices.size()));
 
     for (uint32_t i = 0; i < state_.device_count; i++) {
         const DeviceDef& dev_def = profile->devices[i];
 
         // Set user path
-        std::strncpy(state_.devices[i].user_path, dev_def.user_path, sizeof(state_.devices[i].user_path) - 1);
-        state_.devices[i].user_path[sizeof(state_.devices[i].user_path) - 1] = '\0';
+        snprintf(state_.devices[i].user_path, sizeof(state_.devices[i].user_path), "%s", dev_def.user_path);
 
         // Set active state
         state_.devices[i].is_active = dev_def.always_active ? 1 : 0;

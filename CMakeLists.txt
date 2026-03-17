@@ -1,8 +1,28 @@
-cmake_minimum_required(VERSION 3.15)
-project(ox-simulator VERSION 0.3.0 LANGUAGES CXX)
+cmake_minimum_required(VERSION 3.5)
+
+project(ox-simulator VERSION 0.4.0 LANGUAGES CXX)
+
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+
+if(WIN32 AND MSVC)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+option(OX_SIM_BUILD_EXAMPLES "Build simulator API examples" ON)
+
+if(NOT TARGET spdlog::spdlog)
+    include(FetchContent)
+
+    FetchContent_Declare(
+        spdlog
+        GIT_REPOSITORY https://github.com/gabime/spdlog
+        GIT_TAG v1.17.0
+        GIT_SHALLOW true
+    )
+    FetchContent_MakeAvailable(spdlog)
+endif()
 
 set(OUTPUT_FOLDER "ox_simulator")
 
@@ -13,15 +33,15 @@ if(UNIX AND NOT APPLE)
 endif()
 
 # Add subdirectories
-add_subdirectory(src/api)
 add_subdirectory(src/gui)
 
 # Source files
 set(SIMULATOR_SOURCES
     src/driver.cpp
+    src/simulator_api.cpp
     src/simulator_core.cpp
+    src/simulator_runtime.cpp
     src/device_profiles.cpp
-    ${API_SOURCES}
     ${GUI_SOURCES}
 )
 
@@ -42,20 +62,15 @@ set_target_properties(ox-simulator PROPERTIES
 # Include directories
 target_include_directories(ox-simulator PRIVATE
     src
-    ${CMAKE_SOURCE_DIR}/src/api
-    ${CMAKE_SOURCE_DIR}/src/api/third_party
     ${GUI_INCLUDE_DIRS}
-    ${CMAKE_SOURCE_DIR}  # For ox_driver.h in root directory
+    ${CMAKE_CURRENT_SOURCE_DIR}  # For ox_driver.h in this project root
 )
 
 # Link libraries
-target_link_libraries(ox-simulator PRIVATE ${GUI_LIBRARIES})
+target_link_libraries(ox-simulator PRIVATE spdlog::spdlog ${GUI_LIBRARIES})
 
 # Platform-specific settings
 if(WIN32)
-    # Windows requires ws2_32 for networking and _WIN32_WINNT definition for ASIO
-    target_link_libraries(ox-simulator PRIVATE ws2_32)
-    target_compile_definitions(ox-simulator PRIVATE _WIN32_WINNT=0x0601)  # Windows 7+
 elseif(APPLE)
     # Support macOS 10.13+ for broad compatibility
     set_target_properties(ox-simulator PROPERTIES
@@ -66,13 +81,24 @@ elseif(UNIX)
     target_link_libraries(ox-simulator PRIVATE ${CMAKE_DL_LIBS})
 endif()
 
-# Copy config.json to output directory
-add_custom_command(TARGET ox-simulator POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${CMAKE_SOURCE_DIR}/config.json
-        ${CMAKE_BINARY_DIR}/${OUTPUT_FOLDER}/config.json
-    COMMENT "Copying config.json to output directory"
-)
+if(OX_SIM_BUILD_EXAMPLES)
+    add_executable(ox_simulator_api_example
+        examples/simulator_api_example.cpp
+    )
+
+    target_include_directories(ox_simulator_api_example PRIVATE
+        src
+        ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+
+    target_link_libraries(ox_simulator_api_example PRIVATE ox-simulator spdlog::spdlog)
+
+    set_target_properties(ox_simulator_api_example PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/examples
+        RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/examples
+        RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_BINARY_DIR}/examples
+    )
+endif()
 
 # Print build completion message
 add_custom_command(TARGET ox-simulator POST_BUILD

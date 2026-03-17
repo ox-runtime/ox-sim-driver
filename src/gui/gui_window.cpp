@@ -1,19 +1,17 @@
 #include "gui_window.h"
 
 #include <GLFW/glfw3.h>
+#include <spdlog/spdlog.h>
 
 #include <algorithm>
 #include <cmath>
 #include <cstring>
-#include <iostream>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
-#include "config.hpp"
 #include "device_profiles.h"
 #include "frame_data.h"
-#include "http_server.h"
 #include "imgui_impl_opengl3.h"
 #include "utils.hpp"
 #include "vog.h"
@@ -26,36 +24,28 @@ namespace ox_sim {
 GuiWindow::GuiWindow() = default;
 GuiWindow::~GuiWindow() { Stop(); }
 
-bool GuiWindow::Start(SimulatorCore* simulator, const DeviceProfile** device_profile_ptr, bool* api_enabled,
-                      HttpServer* http_server, int api_port) {
+bool GuiWindow::Start(SimulatorCore* simulator, std::atomic<const DeviceProfile*>* device_profile_ptr) {
     if (!simulator) {
-        std::cerr << "GuiWindow::Start: Simulator is null" << std::endl;
+        spdlog::error("GuiWindow::Start: Simulator is null");
         return false;
     }
     if (!device_profile_ptr) {
-        std::cerr << "GuiWindow::Start: Device profile pointer is null" << std::endl;
-        return false;
-    }
-    if (!api_enabled) {
-        std::cerr << "GuiWindow::Start: API enabled pointer is null" << std::endl;
+        spdlog::error("GuiWindow::Start: Device profile pointer is null");
         return false;
     }
     if (window_.IsRunning()) {
-        std::cerr << "GuiWindow::Start: GUI already running" << std::endl;
+        spdlog::error("GuiWindow::Start: GUI already running");
         return false;
     }
 
     simulator_ = simulator;
     device_profile_ptr_ = device_profile_ptr;
-    api_enabled_ = api_enabled;
-    http_server_ = http_server;
-    api_port_ = api_port;
 
-    if (*device_profile_ptr_) {
-        selected_device_type_ = static_cast<int>((*device_profile_ptr_)->type);
+    if (const DeviceProfile* profile = std::atomic_load_explicit(device_profile_ptr_, std::memory_order_acquire)) {
+        selected_device_type_ = static_cast<int>(profile->type);
     }
 
-    std::cout << "Initializing GUI window..." << std::endl;
+    spdlog::info("Initializing GUI window...");
     vog::WindowConfig cfg{"ox simulator", 1280, 720};
 
     // No window padding
@@ -88,11 +78,10 @@ void GuiWindow::RenderFrame() {
     ImGui::BeginChild("TopToolbar", ImVec2(0, top_toolbar_h), false, ImGuiWindowFlags_NoScrollbar);
     {
         const float btn_runtime_w = 190.0f;
-        const float btn_api_w = 160.0f;
         const float lbl_device_w = ImGui::CalcTextSize("Device:").x + style.ItemSpacing.x;
         const float combo_device_w = 190.0f;
         const float spacing = style.ItemSpacing.x * 3.0f;
-        const float total_w = btn_runtime_w + spacing + btn_api_w + spacing + lbl_device_w + combo_device_w;
+        const float total_w = btn_runtime_w + spacing + lbl_device_w + combo_device_w;
         const ImVec2 avail = ImGui::GetContentRegionAvail();
 
         float start_x = (avail.x - total_w) * 0.5f;
@@ -118,36 +107,6 @@ void GuiWindow::RenderFrame() {
 
         ImGui::SameLine(0, spacing);
 
-        bool api_on = *api_enabled_;
-        if (vog::widgets::ToggleButton("API Server:", &api_on, false)) {
-            *api_enabled_ = api_on;
-            g_config.api = api_on;
-            SaveConfig(GetConfigPath());
-            if (api_on) {
-                if (http_server_ && !http_server_->IsRunning()) {
-                    http_server_->Start(simulator_, device_profile_ptr_, api_port_);
-                }
-                status_message_ = std::string("API Server enabled (port ") + std::to_string(api_port_) + ")";
-            } else {
-                if (http_server_ && http_server_->IsRunning()) {
-                    http_server_->Stop();
-                }
-                status_message_ = "API Server disabled";
-            }
-        }
-        vog::widgets::ShowItemTooltip("Toggle HTTP API server on port 8765");
-
-        ImGui::SameLine();
-
-        if (ImGui::Button(ICON_FA_GLOBE "##copy_api_url")) {
-            std::string api_url = std::string("http://localhost:") + std::to_string(api_port_);
-            glfwSetClipboardString(window_.GetNativeWindow(), api_url.c_str());
-            status_message_ = "Copied API URL to clipboard";
-        }
-        vog::widgets::ShowItemTooltip("Copy the API URL to clipboard");
-
-        ImGui::SameLine(0, spacing);
-
         ImGui::AlignTextToFramePadding();
         ImGui::Text("Simulated Device:");
         ImGui::SameLine();
@@ -159,7 +118,7 @@ void GuiWindow::RenderFrame() {
             const DeviceProfile& new_profile = GetDeviceProfile(new_type);
             if (simulator_->SwitchDevice(&new_profile)) {
                 selected_device_type_ = current_device;
-                *device_profile_ptr_ = &new_profile;
+                std::atomic_store_explicit(device_profile_ptr_, &new_profile, std::memory_order_release);
                 status_message_ = std::string("Switched to ") + new_profile.name;
             } else {
                 status_message_ = "Failed to switch device profile";
@@ -215,8 +174,7 @@ void GuiWindow::RenderFrame() {
     ImGui::PushStyleColor(ImGuiCol_ChildBg, tc.panel1.value());
     ImGui::BeginChild("Sidebar", ImVec2(sidebar_w_, main_area_h), false);
     {
-        if (*device_profile_ptr_) {
-            const DeviceProfile* profile = *device_profile_ptr_;
+        if (const DeviceProfile* profile = std::atomic_load_explicit(device_profile_ptr_, std::memory_order_acquire)) {
             // Use the actual usable width so the panel border always fills edge-to-edge.
             const float inner_w = ImGui::GetContentRegionAvail().x;
             for (size_t i = 0; i < profile->devices.size(); i++) {
@@ -234,8 +192,7 @@ void GuiWindow::RenderFrame() {
     {
         ImGui::Separator();
         ImGui::Indent(5.0f);
-        if (*device_profile_ptr_) {
-            const DeviceProfile* p = *device_profile_ptr_;
+        if (const DeviceProfile* p = std::atomic_load_explicit(device_profile_ptr_, std::memory_order_acquire)) {
             FrameData* fd = GetFrameData();
             const bool session_ok = fd && fd->IsSessionActive();
             const uint32_t app_fps = session_ok ? fd->app_fps.load(std::memory_order_relaxed) : 0u;
@@ -377,7 +334,7 @@ void GuiWindow::UpdateFrameTextures() {
             glBindTexture(GL_TEXTURE_2D, preview_textures_[eye]);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-            std::cout << "[GUI] Created OpenGL texture " << preview_textures_[eye] << " for eye " << eye << std::endl;
+            spdlog::info("[GUI] Created OpenGL texture {} for eye {}", preview_textures_[eye], eye);
         }
         glBindTexture(GL_TEXTURE_2D, preview_textures_[eye]);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, frame_data->pixel_data[eye]);

@@ -1,7 +1,0 @@
-{
-    "device": "oculus_quest_2",
-    "headless": false,
-    "api": true,
-    "api_port": 8765,
-    "comment": "Device options: oculus_quest_2, oculus_quest_3, htc_vive, valve_index, htc_vive_tracker. headless: run without GUI, api: enable HTTP API server"
-}

@@ -301,6 +301,23 @@ const DeviceProfile& GetDeviceProfile(DeviceType type) {
     }
 }
 
+const char* GetDeviceProfileId(DeviceType type) {
+    switch (type) {
+        case DeviceType::OCULUS_QUEST_2:
+            return "oculus_quest_2";
+        case DeviceType::OCULUS_QUEST_3:
+            return "oculus_quest_3";
+        case DeviceType::HTC_VIVE:
+            return "htc_vive";
+        case DeviceType::VALVE_INDEX:
+            return "valve_index";
+        case DeviceType::HTC_VIVE_TRACKER:
+            return "htc_vive_tracker";
+        default:
+            throw std::runtime_error("Unknown device type");
+    }
+}
+
 const DeviceProfile* GetDeviceProfileByName(const std::string& name) {
     auto it = NAME_TO_TYPE.find(name);
     if (it != NAME_TO_TYPE.end()) {
