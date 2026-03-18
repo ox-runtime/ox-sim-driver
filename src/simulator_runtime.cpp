@@ -116,4 +116,6 @@ bool SetCurrentDeviceProfile(const DeviceProfile* profile) {
     return true;
 }
 
+bool IsSimulatorGuiRunning() { return g_gui_window.IsRunning(); }
+
 }  // namespace ox_sim

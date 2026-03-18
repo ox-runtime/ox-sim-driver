@@ -13,6 +13,7 @@ void ReleaseSimulatorRuntime();
 bool StartSimulatorGui();
 void StopSimulatorGui();
 bool IsSimulatorRuntimeInitialized();
+bool IsSimulatorGuiRunning();
 
 SimulatorCore& GetSimulatorCore();
 FrameData* GetFrameData();

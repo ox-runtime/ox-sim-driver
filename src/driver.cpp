@@ -54,6 +54,15 @@ static int simulator_is_device_connected(void) {
     return 1;
 }
 
+static int simulator_is_driver_running(void) {
+    // Check if the GUI window is still running
+    if (!IsSimulatorGuiRunning()) {
+        spdlog::info("Simulator GUI window is closed.");
+        return 0;
+    }
+    return 1;
+}
+
 static void simulator_get_device_info(OxDeviceInfo* info) {
     const DeviceProfile* device_profile = GetCurrentDeviceProfile();
     if (!device_profile) {
@@ -230,6 +239,7 @@ extern "C" OX_DRIVER_EXPORT int ox_driver_register(OxDriverCallbacks* callbacks)
 
     callbacks->initialize = simulator_initialize;
     callbacks->shutdown = simulator_shutdown;
+    callbacks->is_driver_running = simulator_is_driver_running;
     callbacks->is_device_connected = simulator_is_device_connected;
     callbacks->get_device_info = simulator_get_device_info;
     callbacks->get_display_properties = simulator_get_display_properties;
