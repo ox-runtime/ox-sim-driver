@@ -1,38 +1,52 @@
 #include <ox_driver.h>
+#include <ox_sim.h>
 #include <spdlog/spdlog.h>
 
 #include <cstdio>
 #include <cstring>
-#include <mutex>
 #include <string>
 
-#include "device_profiles.h"
-#include "simulator_core.h"
-#include "simulator_runtime.h"
-
-#ifdef _WIN32
-#include <windows.h>
-#else
-#include <dlfcn.h>
-#endif
+#include "device_profiles.hpp"
+#include "gui/gui_window.h"
 
 using namespace ox_sim;
 
 static OxVector3f rotate_vector_by_quat(const OxQuaternion& q, const OxVector3f& v);
 
-// ===== Driver Callbacks =====
+extern "C" void sim_submit_frame(uint32_t eye, uint32_t w, uint32_t h, const void* data, uint32_t size);
+extern "C" void sim_notify_session(OxSessionState state);
+extern "C" void sim_copy_devices(OxDeviceState* out, uint32_t max, uint32_t* out_count);
+
+namespace {
+
+GuiWindow g_gui;
+
+const DeviceProfile* current_profile() {
+    char profile_name[64] = {};
+    if (ox_sim_get_current_profile(profile_name, sizeof(profile_name)) != OX_SIM_SUCCESS) {
+        return nullptr;
+    }
+
+    return GetDeviceProfileByName(profile_name);
+}
+
+OxComponentResult result_to_component_result(OxSimResult result) {
+    return result == OX_SIM_SUCCESS ? OX_COMPONENT_AVAILABLE : OX_COMPONENT_UNAVAILABLE;
+}
+
+}  // namespace
 
 static int simulator_initialize(void) {
     spdlog::info("=== ox Simulator Driver ===");
 
-    if (!AcquireSimulatorRuntime()) {
-        spdlog::error("Failed to initialize simulator core");
+    if (ox_sim_initialize() != OX_SIM_SUCCESS) {
+        spdlog::error("Failed to initialize simulator state");
         return 0;
     }
 
-    if (!StartSimulatorGui()) {
+    if (!g_gui.Start()) {
         spdlog::error("Failed to start GUI window");
-        ReleaseSimulatorRuntime();
+        ox_sim_shutdown();
         return 0;
     }
 
@@ -42,21 +56,15 @@ static int simulator_initialize(void) {
 
 static void simulator_shutdown(void) {
     spdlog::info("Shutting down simulator driver...");
-
-    StopSimulatorGui();
-    ReleaseSimulatorRuntime();
-
+    g_gui.Stop();
+    ox_sim_shutdown();
     spdlog::info("Simulator driver shut down");
 }
 
-static int simulator_is_device_connected(void) {
-    // Simulator is always "connected"
-    return 1;
-}
+static int simulator_is_device_connected(void) { return 1; }
 
 static int simulator_is_driver_running(void) {
-    // Check if the GUI window is still running
-    if (!IsSimulatorGuiRunning()) {
+    if (!g_gui.IsRunning()) {
         spdlog::info("Simulator GUI window is closed.");
         return 0;
     }
@@ -64,26 +72,22 @@ static int simulator_is_driver_running(void) {
 }
 
 static void simulator_get_device_info(OxDeviceInfo* info) {
-    const DeviceProfile* device_profile = GetCurrentDeviceProfile();
-    if (!device_profile) {
+    const DeviceProfile* device_profile = current_profile();
+    if (!info || !device_profile) {
         return;
     }
 
-    snprintf(info->name, sizeof(info->name), "%s", device_profile->name);
-
-    snprintf(info->manufacturer, sizeof(info->manufacturer), "%s", device_profile->manufacturer);
-
-    // Generate unique serial number
+    std::snprintf(info->name, sizeof(info->name), "%s", device_profile->name);
+    std::snprintf(info->manufacturer, sizeof(info->manufacturer), "%s", device_profile->manufacturer);
     std::string serial = std::string(device_profile->serial_prefix) + "-12345";
-    snprintf(info->serial, sizeof(info->serial), "%s", serial.c_str());
-
+    std::snprintf(info->serial, sizeof(info->serial), "%s", serial.c_str());
     info->vendor_id = device_profile->vendor_id;
     info->product_id = device_profile->product_id;
 }
 
 static void simulator_get_display_properties(OxDisplayProperties* props) {
-    const DeviceProfile* device_profile = GetCurrentDeviceProfile();
-    if (!device_profile) {
+    const DeviceProfile* device_profile = current_profile();
+    if (!props || !device_profile) {
         return;
     }
 
@@ -92,7 +96,6 @@ static void simulator_get_display_properties(OxDisplayProperties* props) {
     props->recommended_width = device_profile->recommended_width;
     props->recommended_height = device_profile->recommended_height;
     props->refresh_rate = device_profile->refresh_rate;
-
     props->fov.angle_left = device_profile->fov_left;
     props->fov.angle_right = device_profile->fov_right;
     props->fov.angle_up = device_profile->fov_up;
@@ -100,39 +103,26 @@ static void simulator_get_display_properties(OxDisplayProperties* props) {
 }
 
 static void simulator_get_tracking_capabilities(OxTrackingCapabilities* caps) {
-    const DeviceProfile* device_profile = GetCurrentDeviceProfile();
-    if (!device_profile) {
+    const DeviceProfile* device_profile = current_profile();
+    if (!caps || !device_profile) {
         return;
     }
 
-    caps->has_position_tracking = device_profile->has_position_tracking ? 1 : 0;
-    caps->has_orientation_tracking = device_profile->has_orientation_tracking ? 1 : 0;
+    caps->has_position_tracking = device_profile->has_position_tracking ? 1u : 0u;
+    caps->has_orientation_tracking = device_profile->has_orientation_tracking ? 1u : 0u;
 }
 
 static void simulator_update_view_pose(int64_t predicted_time, uint32_t eye_index, OxPose* out_pose) {
-    // Get HMD pose from device list (HMD is at /user/head)
-    OxDeviceState devices[OX_MAX_DEVICES];
-    uint32_t device_count;
-    GetSimulatorCore().UpdateAllDevices(devices, &device_count);
+    (void)predicted_time;
 
-    // Find HMD device
-    OxPose hmd_pose = {{0.0f, 1.6f, 0.0f}, {0.0f, 0.0f, 0.0f, 1.0f}};  // Default origin at eye level
-    for (uint32_t i = 0; i < device_count; i++) {
-        if (std::strcmp(devices[i].user_path, "/user/head") == 0) {
-            hmd_pose = devices[i].pose;
-            break;
-        }
-    }
-    // If no HMD found (e.g., vive tracker profile), just use origin
-    // Most tracker applications don't render, so view pose doesn't matter
+    OxPose hmd_pose = {{0.0f, 1.6f, 0.0f}, {0.0f, 0.0f, 0.0f, 1.0f}};
+    uint32_t is_active = 0;
+    ox_sim_get_device_pose("/user/head", &hmd_pose, &is_active);
 
-    // Apply IPD offset (typical IPD is ~63mm = 0.063m)
-    float ipd = 0.063f;
-    float eye_offset = (eye_index == 0) ? -ipd / 2.0f : ipd / 2.0f;
-
-    // Apply the IPD offset in head-local space by rotating the local X offset
-    OxVector3f eye_local = {eye_offset, 0.0f, 0.0f};
-    OxVector3f rotated_offset = rotate_vector_by_quat(hmd_pose.orientation, eye_local);
+    const float ipd = 0.063f;
+    const float eye_offset = eye_index == 0 ? -ipd / 2.0f : ipd / 2.0f;
+    const OxVector3f eye_local = {eye_offset, 0.0f, 0.0f};
+    const OxVector3f rotated_offset = rotate_vector_by_quat(hmd_pose.orientation, eye_local);
 
     *out_pose = hmd_pose;
     out_pose->position.x += rotated_offset.x;
@@ -141,50 +131,31 @@ static void simulator_update_view_pose(int64_t predicted_time, uint32_t eye_inde
 }
 
 static void simulator_update_devices(int64_t predicted_time, OxDeviceState* out_states, uint32_t* out_count) {
-    if (!GetCurrentDeviceProfile()) {
-        *out_count = 0;
-        return;
-    }
-
-    GetSimulatorCore().UpdateAllDevices(out_states, out_count);
+    (void)predicted_time;
+    sim_copy_devices(out_states, OX_MAX_DEVICES, out_count);
 }
 
 static OxComponentResult simulator_get_input_state_boolean(int64_t predicted_time, const char* user_path,
                                                            const char* component_path, uint32_t* out_value) {
-    if (!GetCurrentDeviceProfile()) {
-        return OX_COMPONENT_UNAVAILABLE;
-    }
-
-    bool value;
-    OxComponentResult result = GetSimulatorCore().GetInputStateBoolean(user_path, component_path, &value);
-    *out_value = value ? 1 : 0;
-    return result;
+    (void)predicted_time;
+    return result_to_component_result(ox_sim_get_input_state_boolean(user_path, component_path, out_value));
 }
 
 static OxComponentResult simulator_get_input_state_float(int64_t predicted_time, const char* user_path,
                                                          const char* component_path, float* out_value) {
-    if (!GetCurrentDeviceProfile()) {
-        return OX_COMPONENT_UNAVAILABLE;
-    }
-
-    return GetSimulatorCore().GetInputStateFloat(user_path, component_path, out_value);
+    (void)predicted_time;
+    return result_to_component_result(ox_sim_get_input_state_float(user_path, component_path, out_value));
 }
 
 static OxComponentResult simulator_get_input_state_vector2f(int64_t predicted_time, const char* user_path,
                                                             const char* component_path, OxVector2f* out_value) {
-    if (!GetCurrentDeviceProfile()) {
-        return OX_COMPONENT_UNAVAILABLE;
-    }
-
-    OxVector2f vec;
-    OxComponentResult result = GetSimulatorCore().GetInputStateVec2(user_path, component_path, &vec);
-    *out_value = vec;
-    return result;
+    (void)predicted_time;
+    return result_to_component_result(ox_sim_get_input_state_vector2f(user_path, component_path, out_value));
 }
 
 static uint32_t simulator_get_interaction_profiles(const char** out_profiles, uint32_t max_count) {
-    const DeviceProfile* device_profile = GetCurrentDeviceProfile();
-    if (!device_profile || max_count == 0) {
+    const DeviceProfile* device_profile = current_profile();
+    if (!out_profiles || max_count == 0 || !device_profile) {
         return 0;
     }
 
@@ -192,42 +163,12 @@ static uint32_t simulator_get_interaction_profiles(const char** out_profiles, ui
     return 1;
 }
 
-static void simulator_on_session_state_changed(OxSessionState new_state) {
-    GetFrameData()->session_state.store(static_cast<uint32_t>(new_state), std::memory_order_relaxed);
-}
+static void simulator_on_session_state_changed(OxSessionState new_state) { sim_notify_session(new_state); }
 
 static void simulator_submit_frame_pixels(uint32_t eye_index, uint32_t width, uint32_t height, uint32_t format,
                                           const void* pixel_data, uint32_t data_size) {
-    if (eye_index >= 2 || width == 0 || height == 0 || !pixel_data || data_size == 0) {
-        spdlog::error("[Driver] submit_frame_pixels: Invalid parameters (eye={} size={}x{} data_size={})", eye_index,
-                      width, height, data_size);
-        return;
-    }
-
-    // Store frame data pointers for GUI preview (zero-copy - use shared memory directly)
-    {
-        FrameData* frame_data = GetFrameData();
-        std::lock_guard<std::mutex> lock(frame_data->mutex);
-
-        // Update dimensions on first frame or size change
-        if (frame_data->width != width || frame_data->height != height) {
-            frame_data->width = width;
-            frame_data->height = height;
-            spdlog::info("[Driver] Frame dimensions set to {}x{}", width, height);
-        }
-
-        // Store the shared memory pointer
-        frame_data->pixel_data[eye_index] = pixel_data;
-        frame_data->data_size[eye_index] = data_size;
-
-        // App FPS computation
-        if (eye_index == 0) {
-            frame_data->UpdateFps();
-        }
-
-        // Mark that new frame is available
-        frame_data->has_new_frame.store(true, std::memory_order_release);
-    }
+    (void)format;
+    sim_submit_frame(eye_index, width, height, pixel_data, data_size);
 }
 
 // ===== Driver Registration =====
@@ -256,7 +197,6 @@ extern "C" OX_DRIVER_EXPORT int ox_driver_register(OxDriverCallbacks* callbacks)
     return 1;
 }
 
-// Rotate a vector `v` by quaternion `q` (assumes q is a unit quaternion).
 static OxVector3f rotate_vector_by_quat(const OxQuaternion& q, const OxVector3f& v) {
     // t = 2 * cross(q.xyz, v)
     OxVector3f t;

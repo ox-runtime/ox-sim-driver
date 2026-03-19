@@ -1,11 +1,12 @@
 #pragma once
 
-#include <atomic>
+#include <ox_sim.h>
+
 #include <cstdint>
 #include <string>
 #include <unordered_map>
 
-#include "simulator_core.h"
+#include "device_profiles.hpp"
 #include "vog.h"
 
 namespace ox_sim {
@@ -15,9 +16,7 @@ class GuiWindow {
     GuiWindow();
     ~GuiWindow();
 
-    // Start the GUI window. device_profile_ptr points at the current device profile
-    // pointer so that device switching is reflected immediately.
-    bool Start(SimulatorCore* simulator, std::atomic<const DeviceProfile*>* device_profile_ptr);
+    bool Start();
 
     // Signal the window to close and wait for it to finish.
     void Stop();
@@ -47,9 +46,6 @@ class GuiWindow {
     std::unordered_map<std::string, EulerCache> euler_cache_;
 
     vog::Window window_;
-
-    SimulatorCore* simulator_ = nullptr;
-    std::atomic<const DeviceProfile*>* device_profile_ptr_ = nullptr;
 
     // UI state
     int selected_device_type_ = 0;

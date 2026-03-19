@@ -1,17 +1,18 @@
 #include "gui_window.h"
 
 #include <GLFW/glfw3.h>
+#include <ox_sim.h>
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <cfloat>
 #include <cmath>
 #include <cstring>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
-#include "device_profiles.h"
-#include "frame_data.h"
+#include "device_profiles.hpp"
 #include "imgui_impl_opengl3.h"
 #include "utils.hpp"
 #include "vog.h"
@@ -21,27 +22,39 @@ using ox_sim::utils::RadToDeg;
 
 namespace ox_sim {
 
+namespace {
+
+const DeviceProfile* current_profile() {
+    char profile_name[64] = {};
+    if (ox_sim_get_current_profile(profile_name, sizeof(profile_name)) != OX_SIM_SUCCESS) {
+        return nullptr;
+    }
+
+    return GetDeviceProfileByName(profile_name);
+}
+
+bool is_session_active() {
+    OxSessionState state = OX_SESSION_STATE_UNKNOWN;
+    if (ox_sim_get_session_state(&state) != OX_SIM_SUCCESS) {
+        return false;
+    }
+
+    return state == OX_SESSION_STATE_SYNCHRONIZED || state == OX_SESSION_STATE_VISIBLE ||
+           state == OX_SESSION_STATE_FOCUSED;
+}
+
+}  // namespace
+
 GuiWindow::GuiWindow() = default;
 GuiWindow::~GuiWindow() { Stop(); }
 
-bool GuiWindow::Start(SimulatorCore* simulator, std::atomic<const DeviceProfile*>* device_profile_ptr) {
-    if (!simulator) {
-        spdlog::error("GuiWindow::Start: Simulator is null");
-        return false;
-    }
-    if (!device_profile_ptr) {
-        spdlog::error("GuiWindow::Start: Device profile pointer is null");
-        return false;
-    }
+bool GuiWindow::Start() {
     if (window_.IsRunning()) {
         spdlog::error("GuiWindow::Start: GUI already running");
         return false;
     }
 
-    simulator_ = simulator;
-    device_profile_ptr_ = device_profile_ptr;
-
-    if (const DeviceProfile* profile = std::atomic_load_explicit(device_profile_ptr_, std::memory_order_acquire)) {
+    if (const DeviceProfile* profile = current_profile()) {
         selected_device_type_ = static_cast<int>(profile->type);
     }
 
@@ -116,9 +129,8 @@ void GuiWindow::RenderFrame() {
         if (vog::widgets::Combo("##DeviceSelect", &current_device, device_names, IM_ARRAYSIZE(device_names))) {
             DeviceType new_type = static_cast<DeviceType>(current_device);
             const DeviceProfile& new_profile = GetDeviceProfile(new_type);
-            if (simulator_->SwitchDevice(&new_profile)) {
+            if (ox_sim_set_current_profile(GetDeviceProfileId(new_type)) == OX_SIM_SUCCESS) {
                 selected_device_type_ = current_device;
-                std::atomic_store_explicit(device_profile_ptr_, &new_profile, std::memory_order_release);
                 status_message_ = std::string("Switched to ") + new_profile.name;
             } else {
                 status_message_ = "Failed to switch device profile";
@@ -174,7 +186,7 @@ void GuiWindow::RenderFrame() {
     ImGui::PushStyleColor(ImGuiCol_ChildBg, tc.panel1.value());
     ImGui::BeginChild("Sidebar", ImVec2(sidebar_w_, main_area_h), false);
     {
-        if (const DeviceProfile* profile = std::atomic_load_explicit(device_profile_ptr_, std::memory_order_acquire)) {
+        if (const DeviceProfile* profile = current_profile()) {
             // Use the actual usable width so the panel border always fills edge-to-edge.
             const float inner_w = ImGui::GetContentRegionAvail().x;
             for (size_t i = 0; i < profile->devices.size(); i++) {
@@ -192,10 +204,11 @@ void GuiWindow::RenderFrame() {
     {
         ImGui::Separator();
         ImGui::Indent(5.0f);
-        if (const DeviceProfile* p = std::atomic_load_explicit(device_profile_ptr_, std::memory_order_acquire)) {
-            FrameData* fd = GetFrameData();
-            const bool session_ok = fd && fd->IsSessionActive();
-            const uint32_t app_fps = session_ok ? fd->app_fps.load(std::memory_order_relaxed) : 0u;
+        if (const DeviceProfile* p = current_profile()) {
+            uint32_t app_fps = 0;
+            if (is_session_active()) {
+                ox_sim_get_app_fps(&app_fps);
+            }
             ImGui::Text("Display: %dx%d @ %u fps  |  %s", p->display_width, p->display_height, app_fps,
                         status_message_.c_str());
         } else {
@@ -230,7 +243,7 @@ void GuiWindow::RenderFramePreview() {
         // Left: session active indicator with filled circle
         ImGui::SetCursorPos(ImVec2(8.0f, center_y));
         ImGui::AlignTextToFramePadding();
-        const bool session_active = GetFrameData() && GetFrameData()->IsSessionActive();
+        const bool session_active = is_session_active();
         if (session_active) {
             ImGui::TextColored(tc.positive.value(), ICON_FA_CIRCLE "  Session: Active");
         } else {
@@ -315,19 +328,17 @@ void GuiWindow::RenderFramePreview() {
 }
 
 void GuiWindow::UpdateFrameTextures() {
-    FrameData* frame_data = GetFrameData();
-    if (!frame_data) return;
-    if (!frame_data->has_new_frame.load(std::memory_order_acquire)) return;
+    OxSimFramePreview frame_preview = {};
+    if (ox_sim_get_frame_preview(&frame_preview) != OX_SIM_SUCCESS || !frame_preview.has_new_frame) return;
 
-    std::lock_guard<std::mutex> lock(frame_data->mutex);
-    uint32_t w = frame_data->width;
-    uint32_t h = frame_data->height;
+    uint32_t w = frame_preview.width;
+    uint32_t h = frame_preview.height;
     if (w == 0 || h == 0) return;
 
     for (int eye = 0; eye < 2; ++eye) {
-        if (!frame_data->pixel_data[eye]) continue;
+        if (!frame_preview.pixel_data[eye]) continue;
         size_t expected_size = w * h * 4;
-        if (frame_data->data_size[eye] != expected_size) continue;
+        if (frame_preview.data_size[eye] != expected_size) continue;
 
         if (!preview_textures_[eye]) {
             glGenTextures(1, &preview_textures_[eye]);
@@ -337,13 +348,12 @@ void GuiWindow::UpdateFrameTextures() {
             spdlog::info("[GUI] Created OpenGL texture {} for eye {}", preview_textures_[eye], eye);
         }
         glBindTexture(GL_TEXTURE_2D, preview_textures_[eye]);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, frame_data->pixel_data[eye]);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, frame_preview.pixel_data[eye]);
     }
     glBindTexture(GL_TEXTURE_2D, 0);
     preview_width_ = w;
     preview_height_ = h;
     preview_textures_valid_ = true;
-    frame_data->has_new_frame.store(false, std::memory_order_release);
 }
 
 void GuiWindow::RenderDevicePanel(const DeviceDef& device, int device_index, float panel_width) {
@@ -369,9 +379,9 @@ void GuiWindow::RenderDevicePanel(const DeviceDef& device, int device_index, flo
     ImGui::TextColored(tc.text_muted.value(), "(%s)", device.user_path);
     ImGui::Separator();
 
-    bool is_active = false;
+    uint32_t is_active = false;
     OxPose pose = {{0, 0, 0}, {0, 0, 0, 1}};
-    simulator_->GetDevicePose(device.user_path, &pose, &is_active);
+    ox_sim_get_device_pose(device.user_path, &pose, &is_active);
 
     if (!device.always_active) {
         bool active_toggle = is_active;
@@ -379,7 +389,7 @@ void GuiWindow::RenderDevicePanel(const DeviceDef& device, int device_index, flo
         ImGui::Text("Active");
         ImGui::SameLine();
         if (vog::widgets::ToggleButton("", &active_toggle)) {
-            simulator_->SetDevicePose(device.user_path, pose, active_toggle);
+            ox_sim_set_device_pose(device.user_path, &pose, active_toggle ? 1u : 0u);
         }
         ShowItemTooltip("Enable/disable device tracking");
     } else {
@@ -402,7 +412,7 @@ void GuiWindow::RenderDevicePanel(const DeviceDef& device, int device_index, flo
     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - pad);
     if (ImGui::DragFloat3("##Position", pos, 0.01f, -10.0f, 10.0f, "%.4f")) {
         pose.position = {pos[0], pos[1], pos[2]};
-        simulator_->SetDevicePose(device.user_path, pose, is_active);
+        ox_sim_set_device_pose(device.user_path, &pose, is_active);
     }
 
     // Rotation — gimbal-lock-free via per-device cached Euler state.
@@ -416,7 +426,8 @@ void GuiWindow::RenderDevicePanel(const DeviceDef& device, int device_index, flo
 
     ImGui::Spacing();
     if (ImGui::Button("Reset Pose", ImVec2(ImGui::GetContentRegionAvail().x - pad, 0))) {
-        simulator_->SetDevicePose(device.user_path, device.default_pose, is_active);
+        OxPose default_pose = device.default_pose;
+        ox_sim_set_device_pose(device.user_path, &default_pose, is_active);
     }
 
     // ---- Input Components ----
@@ -483,36 +494,37 @@ void GuiWindow::RenderComponentControl(const DeviceDef& device, const ComponentD
 
     switch (component.type) {
         case ComponentType::BOOLEAN: {
-            bool value = false;
-            simulator_->GetInputStateBoolean(device.user_path, component.path, &value);
+            uint32_t raw_value = 0;
+            ox_sim_get_input_state_boolean(device.user_path, component.path, &raw_value);
+            bool value = raw_value != 0;
             // Use empty label so no label text is rendered (we already drew the description above).
             if (vog::widgets::ToggleButton("", &value)) {
-                simulator_->SetInputStateBoolean(device.user_path, component.path, value);
+                ox_sim_set_input_state_boolean(device.user_path, component.path, value ? 1u : 0u);
             }
             break;
         }
         case ComponentType::FLOAT: {
             float value = 0.0f;
-            simulator_->GetInputStateFloat(device.user_path, component.path, &value);
+            ox_sim_get_input_state_float(device.user_path, component.path, &value);
             // Linked axis components (thumbstick/trackpad x-y) have a -1..1 range;
             // all other FLOAT components (triggers, grips) use 0..1.
             const float v_min = (component.linked_vec2_path != nullptr) ? -1.0f : 0.0f;
             ImGui::SetNextItemWidth(150.0f);
             if (ImGui::SliderFloat("##value", &value, v_min, 1.0f, "%.2f")) {
-                simulator_->SetInputStateFloat(device.user_path, component.path, value);
+                ox_sim_set_input_state_float(device.user_path, component.path, value);
             }
             break;
         }
         case ComponentType::VEC2: {
             // Standalone VEC2 (no linked FLOAT axes); show as a double-width slider pair.
             OxVector2f value = {0.0f, 0.0f};
-            simulator_->GetInputStateVec2(device.user_path, component.path, &value);
+            ox_sim_get_input_state_vector2f(device.user_path, component.path, &value);
             float vec2[2] = {value.x, value.y};
             ImGui::SetNextItemWidth(100.0f * 2.0f + ImGui::GetStyle().ItemInnerSpacing.x);
             if (ImGui::SliderFloat2("##vec2", vec2, -1.0f, 1.0f, "%.2f")) {
                 value.x = vec2[0];
                 value.y = vec2[1];
-                simulator_->SetInputStateVec2(device.user_path, component.path, value);
+                ox_sim_set_input_state_vector2f(device.user_path, component.path, &value);
             }
             break;
         }
@@ -560,7 +572,7 @@ void GuiWindow::RenderRotationControl(const DeviceDef& device, int device_index,
 
         ec.euler = {rot[0], rot[1], rot[2]};
         ec.quat = q;
-        simulator_->SetDevicePose(device.user_path, pose, is_active);
+        ox_sim_set_device_pose(device.user_path, &pose, is_active);
     }
 }
 

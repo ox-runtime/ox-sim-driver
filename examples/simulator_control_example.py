@@ -30,26 +30,20 @@ def main() -> None:
     library_path = Path(os.environ.get("OX_SIM_LIB", default_library_path()))
     sim = ctypes.CDLL(str(library_path))
 
-    context = ctypes.c_void_p()
-    sim.ox_sim_create_context.argtypes = [ctypes.POINTER(ctypes.c_void_p)]
-    sim.ox_sim_create_context.restype = ctypes.c_int
-    sim.ox_sim_initialize.argtypes = [ctypes.c_void_p]
+    sim.ox_sim_initialize.argtypes = []
     sim.ox_sim_initialize.restype = ctypes.c_int
-    sim.ox_sim_shutdown.argtypes = [ctypes.c_void_p]
-    sim.ox_sim_destroy_context.argtypes = [ctypes.c_void_p]
-    sim.ox_sim_set_current_profile.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+    sim.ox_sim_shutdown.argtypes = []
+    sim.ox_sim_set_current_profile.argtypes = [ctypes.c_char_p]
     sim.ox_sim_set_current_profile.restype = ctypes.c_int
-    sim.ox_sim_set_device_pose.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.POINTER(OxPose), ctypes.c_uint32]
+    sim.ox_sim_set_device_pose.argtypes = [ctypes.c_char_p, ctypes.POINTER(OxPose), ctypes.c_uint32]
     sim.ox_sim_set_device_pose.restype = ctypes.c_int
-    sim.ox_sim_set_input_state_float.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_float]
+    sim.ox_sim_set_input_state_float.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_float]
     sim.ox_sim_set_input_state_float.restype = ctypes.c_int
 
-    if sim.ox_sim_create_context(ctypes.byref(context)) != 0:
-        raise RuntimeError("ox_sim_create_context failed")
-    if sim.ox_sim_initialize(context) != 0:
+    if sim.ox_sim_initialize() != 0:
         raise RuntimeError("ox_sim_initialize failed")
 
-    sim.ox_sim_set_current_profile(context, b"oculus_quest_2")
+    sim.ox_sim_set_current_profile(b"oculus_quest_2")
     print("Driving the simulator through the local C API. Press Ctrl+C to stop.")
 
     offset = 0.0
@@ -60,14 +54,13 @@ def main() -> None:
                 position=OxVector3f(-0.2 + offset, 1.4, -0.4),
                 orientation=OxQuaternion(0.0, 0.0, 0.0, 1.0),
             )
-            sim.ox_sim_set_device_pose(context, b"/user/hand/left", ctypes.byref(pose), 1)
-            sim.ox_sim_set_input_state_float(context, b"/user/hand/left", b"/input/trigger/value", 0.5)
+            sim.ox_sim_set_device_pose(b"/user/hand/left", ctypes.byref(pose), 1)
+            sim.ox_sim_set_input_state_float(b"/user/hand/left", b"/input/trigger/value", 0.5)
             time.sleep(1.0 / 60.0)
     except KeyboardInterrupt:
         pass
     finally:
-        sim.ox_sim_shutdown(context)
-        sim.ox_sim_destroy_context(context)
+        sim.ox_sim_shutdown()
 
 
 if __name__ == "__main__":

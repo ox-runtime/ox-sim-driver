@@ -3,7 +3,7 @@
 `ox-simulator` is the reference virtual device driver for the `ox` OpenXR stack. It exports two interfaces from the same shared library:
 
 - the low-level `ox_driver_register` ABI consumed by `ox-runtime`
-- a separate high-level C automation API declared in `src/simulator_api.h`
+- a separate high-level C automation API declared in `include/ox_sim.h`
 
 The GUI still talks directly to `SimulatorCore`. There is no HTTP server and no config file.
 
@@ -48,13 +48,13 @@ If `OX_SIM_BUILD_EXAMPLES` is enabled, the C API example is also built under `bu
 
 ## C API
 
-The public C API lives in `src/simulator_api.h`.
+The public C API lives in `include/ox_sim.h`.
 
 Main entry points:
 
-- `ox_sim_create_context` / `ox_sim_destroy_context`
 - `ox_sim_initialize` / `ox_sim_shutdown`
 - `ox_sim_get_current_profile` / `ox_sim_set_current_profile`
+- `ox_sim_get_device_count` / `ox_sim_get_device_state`
 - `ox_sim_get_device_pose` / `ox_sim_set_device_pose`
 - `ox_sim_get_input_state_boolean` / `ox_sim_set_input_state_boolean`
 - `ox_sim_get_input_state_float` / `ox_sim_set_input_state_float`

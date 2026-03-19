@@ -13,6 +13,9 @@ endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 option(OX_SIM_BUILD_EXAMPLES "Build simulator API examples" ON)
+option(OX_SIM_BUILD_TESTS "Build simulator API tests" ON)
+
+include(CTest)
 
 if(NOT TARGET spdlog::spdlog)
     include(FetchContent)
@@ -41,12 +44,13 @@ endif()
 add_subdirectory(src/gui)
 
 # Source files
+set(SIMULATOR_CORE_SOURCES
+    src/ox_sim.cpp
+)
+
 set(SIMULATOR_SOURCES
     src/driver.cpp
-    src/simulator_api.cpp
-    src/simulator_core.cpp
-    src/simulator_runtime.cpp
-    src/device_profiles.cpp
+    ${SIMULATOR_CORE_SOURCES}
     ${GUI_SOURCES}
 )
 
@@ -64,11 +68,22 @@ set_target_properties(ox-simulator PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY_RELEASE ${CMAKE_BINARY_DIR}/${OUTPUT_FOLDER}
 )
 
+if(NOT WIN32)
+    set_target_properties(ox-simulator PROPERTIES
+        CXX_VISIBILITY_PRESET hidden
+        VISIBILITY_INLINES_HIDDEN ON
+    )
+endif()
+
 # Include directories
+target_include_directories(ox-simulator PUBLIC
+    include
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
 target_include_directories(ox-simulator PRIVATE
     src
     ${GUI_INCLUDE_DIRS}
-    ${CMAKE_CURRENT_SOURCE_DIR}  # For ox_driver.h in this project root
 )
 
 # Link libraries
@@ -92,7 +107,7 @@ if(OX_SIM_BUILD_EXAMPLES)
     )
 
     target_include_directories(ox_simulator_api_example PRIVATE
-        src
+        include
         ${CMAKE_CURRENT_SOURCE_DIR}
     )
 
@@ -103,6 +118,10 @@ if(OX_SIM_BUILD_EXAMPLES)
         RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/examples
         RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_BINARY_DIR}/examples
     )
+endif()
+
+if(BUILD_TESTING AND OX_SIM_BUILD_TESTS)
+    add_subdirectory(tests)
 endif()
 
 # Print build completion message
