@@ -17,7 +17,7 @@ TEST_F(InputApiTest, RoundTripsFloatInput) {
 TEST_F(InputApiTest, RoundTripsVectorInput) {
     SetQuest2Profile();
 
-    OxVector2f vec_value = {0.25f, -0.5f};
+    XrVector2f vec_value = {0.25f, -0.5f};
     ASSERT_EQ(ox_sim_set_input_state_vector2f("/user/hand/left", "/input/thumbstick", &vec_value), OX_SIM_SUCCESS);
     ExpectVec2("/user/hand/left", "/input/thumbstick", 0.25f, -0.5f);
 }
@@ -25,7 +25,7 @@ TEST_F(InputApiTest, RoundTripsVectorInput) {
 TEST_F(InputApiTest, SyncsLinkedAxesFromVector) {
     SetQuest2Profile();
 
-    OxVector2f vec_value = {0.25f, -0.5f};
+    XrVector2f vec_value = {0.25f, -0.5f};
     ASSERT_EQ(ox_sim_set_input_state_vector2f("/user/hand/left", "/input/thumbstick", &vec_value), OX_SIM_SUCCESS);
     ExpectFloat("/user/hand/left", "/input/thumbstick/x", 0.25f);
     ExpectFloat("/user/hand/left", "/input/thumbstick/y", -0.5f);
@@ -34,7 +34,7 @@ TEST_F(InputApiTest, SyncsLinkedAxesFromVector) {
 TEST_F(InputApiTest, SyncsVectorFromLinkedAxis) {
     SetQuest2Profile();
 
-    OxVector2f vec_value = {0.25f, -0.5f};
+    XrVector2f vec_value = {0.25f, -0.5f};
     ASSERT_EQ(ox_sim_set_input_state_vector2f("/user/hand/left", "/input/thumbstick", &vec_value), OX_SIM_SUCCESS);
     ASSERT_EQ(ox_sim_set_input_state_float("/user/hand/left", "/input/thumbstick/x", -0.75f), OX_SIM_SUCCESS);
     ExpectVec2("/user/hand/left", "/input/thumbstick", -0.75f, -0.5f);

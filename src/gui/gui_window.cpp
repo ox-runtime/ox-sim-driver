@@ -40,13 +40,13 @@ const DeviceProfile* current_profile() {
 }
 
 bool is_session_active() {
-    OxSessionState state = OX_SESSION_STATE_UNKNOWN;
+    XrSessionState state = XR_SESSION_STATE_UNKNOWN;
     if (ox_sim_get_session_state(&state) != OX_SIM_SUCCESS) {
         return false;
     }
 
-    return state == OX_SESSION_STATE_SYNCHRONIZED || state == OX_SESSION_STATE_VISIBLE ||
-           state == OX_SESSION_STATE_FOCUSED;
+    return state == XR_SESSION_STATE_SYNCHRONIZED || state == XR_SESSION_STATE_VISIBLE ||
+           state == XR_SESSION_STATE_FOCUSED;
 }
 
 }  // namespace
@@ -398,13 +398,13 @@ void GuiWindow::RenderFramePreview() {
 void GuiWindow::UpdateFrameTextures() {
     OxSimFramePreview frame_preview = {};
     if (ox_sim_get_frame_preview(&frame_preview) != OX_SIM_SUCCESS) return;
-    if (frame_preview.frame_timestamp_ns == 0 || frame_preview.frame_timestamp_ns == last_preview_frame_timestamp_ns_) {
+    if (frame_preview.frame_time == 0 || frame_preview.frame_time == last_preview_frame_time_) {
         return;
     }
 
     uint32_t w = frame_preview.width;
     uint32_t h = frame_preview.height;
-    last_preview_frame_timestamp_ns_ = frame_preview.frame_timestamp_ns;
+    last_preview_frame_time_ = frame_preview.frame_time;
     if (w == 0 || h == 0) return;
 
     for (int eye = 0; eye < 2; ++eye) {
@@ -455,7 +455,7 @@ void GuiWindow::RenderDevicePanel(const DeviceDef& device, int device_index, flo
     ImGui::Separator();
 
     uint32_t is_active = false;
-    OxPose pose = {{0, 0, 0}, {0, 0, 0, 1}};
+    XrPosef pose = {{0, 0, 0, 1}, {0, 0, 0}};
     ox_sim_get_device_pose(device.user_path, &pose, &is_active);
 
     if (!device.always_active) {
@@ -501,7 +501,7 @@ void GuiWindow::RenderDevicePanel(const DeviceDef& device, int device_index, flo
 
     ImGui::Spacing();
     if (ImGui::Button("Reset Pose", ImVec2(ImGui::GetContentRegionAvail().x - pad, 0))) {
-        OxPose default_pose = device.default_pose;
+        XrPosef default_pose = device.default_pose;
         ox_sim_set_device_pose(device.user_path, &default_pose, is_active);
     }
 
@@ -592,7 +592,7 @@ void GuiWindow::RenderComponentControl(const DeviceDef& device, const ComponentD
         }
         case ComponentType::VEC2: {
             // Standalone VEC2 (no linked FLOAT axes); show as a double-width slider pair.
-            OxVector2f value = {0.0f, 0.0f};
+            XrVector2f value = {0.0f, 0.0f};
             ox_sim_get_input_state_vector2f(device.user_path, component.path, &value);
             float vec2[2] = {value.x, value.y};
             ImGui::SetNextItemWidth(100.0f * 2.0f + ImGui::GetStyle().ItemInnerSpacing.x);
@@ -610,7 +610,7 @@ void GuiWindow::RenderComponentControl(const DeviceDef& device, const ComponentD
 }
 
 // Rotation control with gimbal-lock-free incremental updates via cached Euler angles per device.
-void GuiWindow::RenderRotationControl(const DeviceDef& device, int device_index, OxPose& pose, bool is_active) {
+void GuiWindow::RenderRotationControl(const DeviceDef& device, int device_index, XrPosef& pose, bool is_active) {
     const std::string key = std::string(device.user_path) + "_" + std::to_string(device_index);
     auto it = euler_cache_.find(key);
     if (it == euler_cache_.end()) {
@@ -639,10 +639,10 @@ void GuiWindow::RenderRotationControl(const DeviceDef& device, int device_index,
         float dy = DegToRad(rot[1] - ec.euler.y);  // yaw delta   (rot around Y)
         float dr = DegToRad(rot[2] - ec.euler.z);  // roll delta  (rot around Z)
 
-        OxQuaternion q = pose.orientation;
-        ApplyRotation(q, OxVector3f{1, 0, 0}, dp);
-        ApplyRotation(q, OxVector3f{0, 1, 0}, dy);
-        ApplyRotation(q, OxVector3f{0, 0, 1}, dr);
+        XrQuaternionf q = pose.orientation;
+        ApplyRotation(q, XrVector3f{1, 0, 0}, dp);
+        ApplyRotation(q, XrVector3f{0, 1, 0}, dy);
+        ApplyRotation(q, XrVector3f{0, 0, 1}, dr);
         pose.orientation = q;
 
         ec.euler = {rot[0], rot[1], rot[2]};
@@ -653,7 +653,7 @@ void GuiWindow::RenderRotationControl(const DeviceDef& device, int device_index,
 
 // Convert quaternion to Euler angles (in degrees) using the OpenXR right-handed Y-up convention.
 // euler.x = pitch (rotation around X), euler.y = yaw (rotation around Y), euler.z = roll (rotation around Z).
-void GuiWindow::QuatToEuler(const OxQuaternion& q, OxVector3f& euler) {
+void GuiWindow::QuatToEuler(const XrQuaternionf& q, XrVector3f& euler) {
     // OpenXR right-handed Y-up: pitch=rotate-X, yaw=rotate-Y, roll=rotate-Z
     float sinp_cosy = 2.0f * (q.w * q.x + q.y * q.z);
     float cosp_cosy = 1.0f - 2.0f * (q.x * q.x + q.y * q.y);
@@ -667,7 +667,7 @@ void GuiWindow::QuatToEuler(const OxQuaternion& q, OxVector3f& euler) {
 }
 
 // Apply an incremental rotation (angle in radians) around the given axis to the input quaternion.
-void GuiWindow::ApplyRotation(OxQuaternion& q, const OxVector3f& a, float angle) {
+void GuiWindow::ApplyRotation(XrQuaternionf& q, const XrVector3f& a, float angle) {
     if (angle == 0.0f) return;
     float s = std::sin(angle * 0.5f), c = std::cos(angle * 0.5f);
     float nx = c * q.x + s * (a.x * q.w + a.y * q.z - a.z * q.y);
@@ -681,7 +681,7 @@ void GuiWindow::ApplyRotation(OxQuaternion& q, const OxVector3f& a, float angle)
     q.w = nw / len;
 }
 
-bool GuiWindow::GetHeadPose(OxPose& pose, uint32_t& is_active) const {
+bool GuiWindow::GetHeadPose(XrPosef& pose, uint32_t& is_active) const {
     return ox_sim_get_device_pose("/user/head", &pose, &is_active) == OX_SIM_SUCCESS;
 }
 
@@ -723,18 +723,18 @@ void GuiWindow::HandlePreviewNavigation(bool allow_navigation, bool block_naviga
         return;
     }
 
-    OxPose head_pose = {};
+    XrPosef head_pose = {};
     uint32_t is_active = 0;
     if (!GetHeadPose(head_pose, is_active)) {
         return;
     }
 
-    OxVector3f euler = {};
+    XrVector3f euler = {};
     QuatToEuler(head_pose.orientation, euler);
     const float yaw = DegToRad(euler.y);
-    OxVector3f forward = {std::sin(yaw), 0.0f, -std::cos(yaw)};
-    OxVector3f right = {std::cos(yaw), 0.0f, std::sin(yaw)};
-    OxVector3f move = {0.0f, 0.0f, 0.0f};
+    XrVector3f forward = {std::sin(yaw), 0.0f, -std::cos(yaw)};
+    XrVector3f right = {std::cos(yaw), 0.0f, std::sin(yaw)};
+    XrVector3f move = {0.0f, 0.0f, 0.0f};
 
     if (ImGui::IsKeyDown(ImGuiKey_W) || ImGui::IsKeyDown(ImGuiKey_UpArrow)) {
         move.x += forward.x;
@@ -889,11 +889,11 @@ void GuiWindow::HandlePreviewInteraction(const ImVec2& preview_min, const ImVec2
 
     if (preview_drag_active_ && !copy_button_hovered) {
         if (std::abs(io.MouseDelta.x) > 0.0f || std::abs(io.MouseDelta.y) > 0.0f) {
-            OxPose head_pose = {};
+            XrPosef head_pose = {};
             uint32_t is_active = 0;
             if (GetHeadPose(head_pose, is_active)) {
-                ApplyRotation(head_pose.orientation, OxVector3f{0.0f, 1.0f, 0.0f}, DegToRad(-io.MouseDelta.x * 0.25f));
-                ApplyRotation(head_pose.orientation, OxVector3f{1.0f, 0.0f, 0.0f}, DegToRad(-io.MouseDelta.y * 0.25f));
+                ApplyRotation(head_pose.orientation, XrVector3f{0.0f, 1.0f, 0.0f}, DegToRad(-io.MouseDelta.x * 0.25f));
+                ApplyRotation(head_pose.orientation, XrVector3f{1.0f, 0.0f, 0.0f}, DegToRad(-io.MouseDelta.y * 0.25f));
                 ox_sim_set_device_pose("/user/head", &head_pose, is_active);
             }
         }

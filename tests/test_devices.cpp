@@ -26,10 +26,10 @@ TEST_F(DeviceApiTest, ReturnsIndexedDeviceState) {
 TEST_F(DeviceApiTest, RoundTripsDevicePose) {
     SetProfileAndGet("valve_index");
 
-    OxPose pose = {{1.0f, 2.0f, 3.0f}, {0.0f, 0.0f, 0.0f, 1.0f}};
+    XrPosef pose = {{0.0f, 0.0f, 0.0f, 1.0f}, {1.0f, 2.0f, 3.0f}};
     ASSERT_EQ(ox_sim_set_device_pose("/user/hand/left", &pose, 1), OX_SIM_SUCCESS);
 
-    OxPose roundtrip = {};
+    XrPosef roundtrip = {};
     uint32_t is_active = 0;
     ASSERT_EQ(ox_sim_get_device_pose("/user/hand/left", &roundtrip, &is_active), OX_SIM_SUCCESS);
     EXPECT_FLOAT_EQ(roundtrip.position.x, 1.0f);
@@ -39,7 +39,7 @@ TEST_F(DeviceApiTest, RoundTripsDevicePose) {
 }
 
 TEST_F(DeviceApiTest, RejectsUnknownDevicePosePath) {
-    OxPose pose = {};
+    XrPosef pose = {};
     uint32_t is_active = 0;
     EXPECT_EQ(ox_sim_get_device_pose("/user/invalid", &pose, &is_active), OX_SIM_ERROR_DEVICE_NOT_FOUND);
 }

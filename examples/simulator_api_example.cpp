@@ -18,7 +18,7 @@ int main() {
         std::cout << "Tracked devices: " << device_count << std::endl;
     }
 
-    OxPose left_pose = {{-0.25f, 1.35f, -0.4f}, {0.0f, 0.0f, 0.0f, 1.0f}};
+    XrPosef left_pose = {{0.0f, 0.0f, 0.0f, 1.0f}, {-0.25f, 1.35f, -0.4f}};
     ox_sim_set_device_pose("/user/hand/left", &left_pose, 1);
     ox_sim_set_input_state_float("/user/hand/left", "/input/trigger/value", 0.75f);
 
@@ -27,7 +27,7 @@ int main() {
         std::cout << "Left trigger: " << trigger_value << std::endl;
     }
 
-    OxSessionState session_state = OX_SESSION_STATE_UNKNOWN;
+    XrSessionState session_state = XR_SESSION_STATE_UNKNOWN;
     if (ox_sim_get_session_state(&session_state) == OX_SIM_SUCCESS) {
         std::cout << "Session state: " << static_cast<uint32_t>(session_state) << std::endl;
     }

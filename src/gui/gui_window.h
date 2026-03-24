@@ -38,7 +38,7 @@ class GuiWindow {
     void RenderDevicePanel(const DeviceDef& device, int device_index, float panel_width);
     void RenderComponentControl(const DeviceDef& device, const ComponentDef& component, int device_index,
                                 float label_col_w, float content_start_x);
-    void RenderRotationControl(const DeviceDef& device, int device_index, OxPose& pose, bool is_active);
+    void RenderRotationControl(const DeviceDef& device, int device_index, XrPosef& pose, bool is_active);
     void RenderFramePreview();
     void UpdateFrameTextures();
     void HandlePreviewInteraction(const ImVec2& preview_min, const ImVec2& preview_max,
@@ -48,16 +48,16 @@ class GuiWindow {
     void HandlePreviewNavigation(bool allow_navigation, bool block_navigation);
     bool CopyCurrentPreviewToClipboard();
     bool CopyPreviewPixelsToClipboard(const std::vector<uint8_t>& pixels, uint32_t width, uint32_t height);
-    bool GetHeadPose(OxPose& pose, uint32_t& is_active) const;
+    bool GetHeadPose(XrPosef& pose, uint32_t& is_active) const;
 
     // Utility functions for rotation handling
-    static void QuatToEuler(const OxQuaternion& q, OxVector3f& euler);
-    static void ApplyRotation(OxQuaternion& q, const OxVector3f& axis, float angle);
+    static void QuatToEuler(const XrQuaternionf& q, XrVector3f& euler);
+    static void ApplyRotation(XrQuaternionf& q, const XrVector3f& axis, float angle);
 
     // Euler cache for rotation UI
     struct EulerCache {
-        OxVector3f euler;  // x=roll, y=pitch, z=yaw in degrees
-        OxQuaternion quat;
+        XrVector3f euler;
+        XrQuaternionf quat;
     };
     std::unordered_map<std::string, EulerCache> euler_cache_;
 
@@ -78,7 +78,7 @@ class GuiWindow {
     uint32_t preview_width_ = 0;
     uint32_t preview_height_ = 0;
     bool preview_textures_valid_ = false;
-    uint64_t last_preview_frame_timestamp_ns_ = 0;
+    XrTime last_preview_frame_time_ = 0;
     std::vector<uint8_t> preview_pixels_[2];
 };
 

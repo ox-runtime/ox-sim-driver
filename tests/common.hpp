@@ -9,8 +9,9 @@
 
 #include "device_profiles.hpp"
 
-extern "C" void sim_submit_frame(uint32_t eye, uint32_t w, uint32_t h, const void* data, uint32_t size);
-extern "C" void sim_notify_session(OxSessionState state);
+extern "C" void sim_submit_frame(XrTime frame_time, uint32_t eye, uint32_t w, uint32_t h, const void* data,
+                                 uint32_t size);
+extern "C" void sim_notify_session(XrSessionState state);
 
 namespace ox_sim::tests {
 
@@ -76,7 +77,7 @@ class InputApiTest : public InitializedApiTest {
     }
 
     void ExpectVec2(const char* user_path, const char* component_path, float expected_x, float expected_y) {
-        OxVector2f value = {};
+        XrVector2f value = {};
         ASSERT_EQ(ox_sim_get_input_state_vector2f(user_path, component_path, &value), OX_SIM_SUCCESS);
         EXPECT_FLOAT_EQ(value.x, expected_x);
         EXPECT_FLOAT_EQ(value.y, expected_y);
@@ -86,9 +87,9 @@ class InputApiTest : public InitializedApiTest {
 class FrameApiTest : public InitializedApiTest {
    protected:
     void SubmitFramePair(const void* left_pixels, uint32_t left_size, const void* right_pixels, uint32_t right_size) {
-        sim_submit_frame(0, 2, 2, left_pixels, left_size);
+        sim_submit_frame(1, 0, 2, 2, left_pixels, left_size);
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
-        sim_submit_frame(1, 2, 2, right_pixels, right_size);
+        sim_submit_frame(2, 1, 2, 2, right_pixels, right_size);
     }
 };
 

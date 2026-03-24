@@ -18,22 +18,30 @@ option(OX_SIM_BUILD_TESTS "Build simulator API tests" ON)
 include(CTest)
 include(FetchContent)
 
-set(OX_DRIVER_HEADER_LOCAL_PATH "${CMAKE_CURRENT_SOURCE_DIR}/ox_driver.h")
-if(EXISTS "${OX_DRIVER_HEADER_LOCAL_PATH}")
-    set(OX_DRIVER_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+set(OX_RUNTIME_REPO "" CACHE PATH "Local path to the ox-runtime repository for ox_driver_api; uses FetchContent when empty")
+
+if(OX_RUNTIME_REPO)
+    get_filename_component(OX_RUNTIME_SOURCE_DIR "${OX_RUNTIME_REPO}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+    if(NOT EXISTS "${OX_RUNTIME_SOURCE_DIR}/include/CMakeLists.txt")
+        message(FATAL_ERROR "OX_RUNTIME_REPO must point to the ox-runtime repository root: ${OX_RUNTIME_SOURCE_DIR}")
+    endif()
+    FetchContent_Declare(
+        ox_driver_api
+        SOURCE_DIR "${OX_RUNTIME_SOURCE_DIR}"
+        SOURCE_SUBDIR include
+    )
 else()
     FetchContent_Declare(
-        ox_driver_header
-        URL https://github.com/ox-runtime/ox-runtime/releases/latest/download/ox_driver.h
-        DOWNLOAD_NO_EXTRACT TRUE
-        DOWNLOAD_NAME ox_driver.h
+        ox_driver_api
+        GIT_REPOSITORY https://github.com/ox-runtime/ox-runtime.git
+        GIT_TAG v0.1.0
+        GIT_SHALLOW TRUE
+        GIT_SPARSE_CHECKOUT include
+        SOURCE_SUBDIR include
+        EXCLUDE_FROM_ALL
     )
-    FetchContent_GetProperties(ox_driver_header)
-    if(NOT ox_driver_header_POPULATED)
-        FetchContent_Populate(ox_driver_header)
-    endif()
-    set(OX_DRIVER_INCLUDE_DIR "${ox_driver_header_SOURCE_DIR}")
 endif()
+FetchContent_MakeAvailable(ox_driver_api)
 
 if(NOT TARGET spdlog::spdlog)
     FetchContent_Declare(
@@ -96,8 +104,6 @@ endif()
 # Include directories
 target_include_directories(ox-simulator PUBLIC
     include
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${OX_DRIVER_INCLUDE_DIR}
 )
 
 target_include_directories(ox-simulator PRIVATE
@@ -111,6 +117,7 @@ target_compile_definitions(ox-simulator PRIVATE
 )
 
 # Link libraries
+target_link_libraries(ox-simulator PUBLIC ox_driver_api)
 target_link_libraries(ox-simulator PRIVATE spdlog::spdlog ${GUI_LIBRARIES})
 
 # Platform-specific settings
@@ -132,11 +139,9 @@ if(OX_SIM_BUILD_EXAMPLES)
 
     target_include_directories(ox_simulator_api_example PRIVATE
         include
-        ${CMAKE_CURRENT_SOURCE_DIR}
-        ${OX_DRIVER_INCLUDE_DIR}
     )
 
-    target_link_libraries(ox_simulator_api_example PRIVATE ox-simulator spdlog::spdlog)
+    target_link_libraries(ox_simulator_api_example PRIVATE ox-simulator ox_driver_api spdlog::spdlog)
 
     set_target_properties(ox_simulator_api_example PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/examples

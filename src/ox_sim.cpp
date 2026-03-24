@@ -14,7 +14,7 @@
 
 namespace {
 
-using InputValue = std::variant<bool, float, OxVector2f>;
+using InputValue = std::variant<bool, float, XrVector2f>;
 
 struct DeviceInputState {
     std::vector<InputValue> values;
@@ -32,9 +32,9 @@ const void* g_frame_pixels[2] = {};
 uint32_t g_frame_sizes[2] = {};
 uint32_t g_frame_w = 0;
 uint32_t g_frame_h = 0;
-std::atomic<uint32_t> g_session_state{OX_SESSION_STATE_UNKNOWN};
+std::atomic<XrSessionState> g_session_state{XR_SESSION_STATE_UNKNOWN};
 std::atomic<uint32_t> g_app_fps{0};
-std::atomic<uint64_t> g_frame_timestamp_ns{0};
+std::atomic<XrTime> g_frame_time{0};
 int64_t g_last_frame_ms = 0;
 std::deque<int64_t> g_dt_history;
 
@@ -126,7 +126,7 @@ void init_devices(const ox_sim::DeviceProfile* profile) {
                     g_inputs[index].values[component_index] = 0.0f;
                     break;
                 case ox_sim::ComponentType::VEC2:
-                    g_inputs[index].values[component_index] = OxVector2f{0.0f, 0.0f};
+                    g_inputs[index].values[component_index] = XrVector2f{0.0f, 0.0f};
                     break;
             }
         }
@@ -141,16 +141,11 @@ void reset_frame_state() {
     g_frame_sizes[1] = 0;
     g_frame_w = 0;
     g_frame_h = 0;
-    g_session_state.store(OX_SESSION_STATE_UNKNOWN, std::memory_order_relaxed);
+    g_session_state.store(XR_SESSION_STATE_UNKNOWN, std::memory_order_relaxed);
     g_app_fps.store(0, std::memory_order_relaxed);
-    g_frame_timestamp_ns.store(0, std::memory_order_relaxed);
+    g_frame_time.store(0, std::memory_order_relaxed);
     g_last_frame_ms = 0;
     g_dt_history.clear();
-}
-
-uint64_t current_time_ns() {
-    using namespace std::chrono;
-    return static_cast<uint64_t>(duration_cast<nanoseconds>(steady_clock::now().time_since_epoch()).count());
 }
 
 void update_fps() {
@@ -200,7 +195,7 @@ void sync_float_to_vec2(const char* user_path, const char* component_path) {
     }
 
     float axis_value = std::get<float>(g_inputs[device_index].values[source_index]);
-    OxVector2f& vec2_value = std::get<OxVector2f>(g_inputs[device_index].values[vec2_index]);
+    XrVector2f& vec2_value = std::get<XrVector2f>(g_inputs[device_index].values[vec2_index]);
     if (source->linked_axis == ox_sim::Vec2Axis::X) {
         vec2_value.x = axis_value;
     } else {
@@ -220,7 +215,7 @@ void sync_vec2_to_floats(const char* user_path, const char* component_path) {
         return;
     }
 
-    const OxVector2f vec2_value = std::get<OxVector2f>(g_inputs[device_index].values[vec2_index]);
+    const XrVector2f vec2_value = std::get<XrVector2f>(g_inputs[device_index].values[vec2_index]);
     for (size_t component_index = 0; component_index < device_def->components.size(); ++component_index) {
         const ox_sim::ComponentDef& component = device_def->components[component_index];
         if (component.type != ox_sim::ComponentType::FLOAT || !component.linked_vec2_path ||
@@ -374,7 +369,7 @@ extern "C" OX_DRIVER_EXPORT OxSimResult ox_sim_get_device_state(uint32_t device_
     return OX_SIM_SUCCESS;
 }
 
-extern "C" OX_DRIVER_EXPORT OxSimResult ox_sim_get_device_pose(const char* user_path, OxPose* out_pose,
+extern "C" OX_DRIVER_EXPORT OxSimResult ox_sim_get_device_pose(const char* user_path, XrPosef* out_pose,
                                                                uint32_t* out_is_active) {
     if (!user_path || !out_pose || !out_is_active) {
         return OX_SIM_ERROR_INVALID_ARGUMENT;
@@ -395,7 +390,7 @@ extern "C" OX_DRIVER_EXPORT OxSimResult ox_sim_get_device_pose(const char* user_
     return OX_SIM_SUCCESS;
 }
 
-extern "C" OX_DRIVER_EXPORT OxSimResult ox_sim_set_device_pose(const char* user_path, const OxPose* pose,
+extern "C" OX_DRIVER_EXPORT OxSimResult ox_sim_set_device_pose(const char* user_path, const XrPosef* pose,
                                                                uint32_t is_active) {
     if (!user_path || !pose) {
         return OX_SIM_ERROR_INVALID_ARGUMENT;
@@ -550,7 +545,7 @@ extern "C" OX_DRIVER_EXPORT OxSimResult ox_sim_set_input_state_float(const char*
 
 extern "C" OX_DRIVER_EXPORT OxSimResult ox_sim_get_input_state_vector2f(const char* user_path,
                                                                         const char* component_path,
-                                                                        OxVector2f* out_value) {
+                                                                        XrVector2f* out_value) {
     if (!user_path || !component_path || !out_value) {
         return OX_SIM_ERROR_INVALID_ARGUMENT;
     }
@@ -572,13 +567,13 @@ extern "C" OX_DRIVER_EXPORT OxSimResult ox_sim_get_input_state_vector2f(const ch
         return OX_SIM_ERROR_COMPONENT_NOT_FOUND;
     }
 
-    *out_value = std::get<OxVector2f>(g_inputs[device_index].values[component_index]);
+    *out_value = std::get<XrVector2f>(g_inputs[device_index].values[component_index]);
     return OX_SIM_SUCCESS;
 }
 
 extern "C" OX_DRIVER_EXPORT OxSimResult ox_sim_set_input_state_vector2f(const char* user_path,
                                                                         const char* component_path,
-                                                                        const OxVector2f* value) {
+                                                                        const XrVector2f* value) {
     if (!user_path || !component_path || !value) {
         return OX_SIM_ERROR_INVALID_ARGUMENT;
     }
@@ -605,7 +600,7 @@ extern "C" OX_DRIVER_EXPORT OxSimResult ox_sim_set_input_state_vector2f(const ch
     return OX_SIM_SUCCESS;
 }
 
-extern "C" OX_DRIVER_EXPORT OxSimResult ox_sim_get_session_state(OxSessionState* out_state) {
+extern "C" OX_DRIVER_EXPORT OxSimResult ox_sim_get_session_state(XrSessionState* out_state) {
     if (!out_state) {
         return OX_SIM_ERROR_INVALID_ARGUMENT;
     }
@@ -613,7 +608,7 @@ extern "C" OX_DRIVER_EXPORT OxSimResult ox_sim_get_session_state(OxSessionState*
         return OX_SIM_ERROR_NOT_INITIALIZED;
     }
 
-    *out_state = static_cast<OxSessionState>(g_session_state.load(std::memory_order_relaxed));
+    *out_state = g_session_state.load(std::memory_order_relaxed);
     return OX_SIM_SUCCESS;
 }
 
@@ -645,12 +640,13 @@ extern "C" OX_DRIVER_EXPORT OxSimResult ox_sim_get_frame_preview(OxSimFramePrevi
     out_preview->width = g_frame_w;
     out_preview->height = g_frame_h;
     out_preview->app_fps = g_app_fps.load(std::memory_order_relaxed);
-    out_preview->session_state = static_cast<OxSessionState>(g_session_state.load(std::memory_order_relaxed));
-    out_preview->frame_timestamp_ns = g_frame_timestamp_ns.load(std::memory_order_relaxed);
+    out_preview->session_state = g_session_state.load(std::memory_order_relaxed);
+    out_preview->frame_time = g_frame_time.load(std::memory_order_relaxed);
     return OX_SIM_SUCCESS;
 }
 
-extern "C" void sim_submit_frame(uint32_t eye, uint32_t w, uint32_t h, const void* data, uint32_t size) {
+extern "C" void sim_submit_frame(XrTime frame_time, uint32_t eye, uint32_t w, uint32_t h, const void* data,
+                                 uint32_t size) {
     if (eye >= 2 || w == 0 || h == 0 || !data || size == 0) {
         return;
     }
@@ -663,12 +659,10 @@ extern "C" void sim_submit_frame(uint32_t eye, uint32_t w, uint32_t h, const voi
     if (eye == 0) {
         update_fps();
     }
-    g_frame_timestamp_ns.store(current_time_ns(), std::memory_order_relaxed);
+    g_frame_time.store(frame_time, std::memory_order_relaxed);
 }
 
-extern "C" void sim_notify_session(OxSessionState state) {
-    g_session_state.store(static_cast<uint32_t>(state), std::memory_order_relaxed);
-}
+extern "C" void sim_notify_session(XrSessionState state) { g_session_state.store(state, std::memory_order_relaxed); }
 
 extern "C" void sim_copy_devices(OxDeviceState* out, uint32_t max, uint32_t* out_count) {
     if (!out_count) {

@@ -12,10 +12,11 @@
 
 using namespace ox_sim;
 
-static OxVector3f rotate_vector_by_quat(const OxQuaternion& q, const OxVector3f& v);
+static XrVector3f rotate_vector_by_quat(const XrQuaternionf& q, const XrVector3f& v);
 
-extern "C" void sim_submit_frame(uint32_t eye, uint32_t w, uint32_t h, const void* data, uint32_t size);
-extern "C" void sim_notify_session(OxSessionState state);
+extern "C" void sim_submit_frame(XrTime frame_time, uint32_t eye, uint32_t w, uint32_t h, const void* data,
+                                 uint32_t size);
+extern "C" void sim_notify_session(XrSessionState state);
 extern "C" void sim_copy_devices(OxDeviceState* out, uint32_t max, uint32_t* out_count);
 
 namespace {
@@ -103,10 +104,10 @@ static void simulator_get_display_properties(OxDisplayProperties* props) {
     props->recommended_width = device_profile->recommended_width;
     props->recommended_height = device_profile->recommended_height;
     props->refresh_rate = device_profile->refresh_rate;
-    props->fov.angle_left = device_profile->fov_left;
-    props->fov.angle_right = device_profile->fov_right;
-    props->fov.angle_up = device_profile->fov_up;
-    props->fov.angle_down = device_profile->fov_down;
+    props->fov.angleLeft = device_profile->fov_left;
+    props->fov.angleRight = device_profile->fov_right;
+    props->fov.angleUp = device_profile->fov_up;
+    props->fov.angleDown = device_profile->fov_down;
 }
 
 static void simulator_get_tracking_capabilities(OxTrackingCapabilities* caps) {
@@ -119,17 +120,17 @@ static void simulator_get_tracking_capabilities(OxTrackingCapabilities* caps) {
     caps->has_orientation_tracking = device_profile->has_orientation_tracking ? 1u : 0u;
 }
 
-static void simulator_update_view_pose(int64_t predicted_time, uint32_t eye_index, OxPose* out_pose) {
+static void simulator_update_view_pose(XrTime predicted_time, uint32_t eye_index, XrPosef* out_pose) {
     (void)predicted_time;
 
-    OxPose hmd_pose = {{0.0f, 1.6f, 0.0f}, {0.0f, 0.0f, 0.0f, 1.0f}};
+    XrPosef hmd_pose = {{0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 1.6f, 0.0f}};
     uint32_t is_active = 0;
     ox_sim_get_device_pose("/user/head", &hmd_pose, &is_active);
 
     const float ipd = 0.063f;
     const float eye_offset = eye_index == 0 ? -ipd / 2.0f : ipd / 2.0f;
-    const OxVector3f eye_local = {eye_offset, 0.0f, 0.0f};
-    const OxVector3f rotated_offset = rotate_vector_by_quat(hmd_pose.orientation, eye_local);
+    const XrVector3f eye_local = {eye_offset, 0.0f, 0.0f};
+    const XrVector3f rotated_offset = rotate_vector_by_quat(hmd_pose.orientation, eye_local);
 
     *out_pose = hmd_pose;
     out_pose->position.x += rotated_offset.x;
@@ -137,25 +138,25 @@ static void simulator_update_view_pose(int64_t predicted_time, uint32_t eye_inde
     out_pose->position.z += rotated_offset.z;
 }
 
-static void simulator_update_devices(int64_t predicted_time, OxDeviceState* out_states, uint32_t* out_count) {
+static void simulator_update_devices(XrTime predicted_time, OxDeviceState* out_states, uint32_t* out_count) {
     (void)predicted_time;
     sim_copy_devices(out_states, OX_MAX_DEVICES, out_count);
 }
 
-static OxComponentResult simulator_get_input_state_boolean(int64_t predicted_time, const char* user_path,
+static OxComponentResult simulator_get_input_state_boolean(XrTime predicted_time, const char* user_path,
                                                            const char* component_path, uint32_t* out_value) {
     (void)predicted_time;
     return result_to_component_result(ox_sim_get_input_state_boolean(user_path, component_path, out_value));
 }
 
-static OxComponentResult simulator_get_input_state_float(int64_t predicted_time, const char* user_path,
+static OxComponentResult simulator_get_input_state_float(XrTime predicted_time, const char* user_path,
                                                          const char* component_path, float* out_value) {
     (void)predicted_time;
     return result_to_component_result(ox_sim_get_input_state_float(user_path, component_path, out_value));
 }
 
-static OxComponentResult simulator_get_input_state_vector2f(int64_t predicted_time, const char* user_path,
-                                                            const char* component_path, OxVector2f* out_value) {
+static OxComponentResult simulator_get_input_state_vector2f(XrTime predicted_time, const char* user_path,
+                                                            const char* component_path, XrVector2f* out_value) {
     (void)predicted_time;
     return result_to_component_result(ox_sim_get_input_state_vector2f(user_path, component_path, out_value));
 }
@@ -170,12 +171,12 @@ static uint32_t simulator_get_interaction_profiles(const char** out_profiles, ui
     return 1;
 }
 
-static void simulator_on_session_state_changed(OxSessionState new_state) { sim_notify_session(new_state); }
+static void simulator_on_session_state_changed(XrSessionState new_state) { sim_notify_session(new_state); }
 
-static void simulator_submit_frame_pixels(uint32_t eye_index, uint32_t width, uint32_t height, uint32_t format,
-                                          const void* pixel_data, uint32_t data_size) {
+static void simulator_submit_frame_pixels(XrTime frame_time, uint32_t eye_index, uint32_t width, uint32_t height,
+                                          uint32_t format, const void* pixel_data, uint32_t data_size) {
     (void)format;
-    sim_submit_frame(eye_index, width, height, pixel_data, data_size);
+    sim_submit_frame(frame_time, eye_index, width, height, pixel_data, data_size);
 }
 
 // ===== Driver Registration =====
@@ -204,20 +205,20 @@ extern "C" OX_DRIVER_EXPORT int ox_driver_register(OxDriverCallbacks* callbacks)
     return 1;
 }
 
-static OxVector3f rotate_vector_by_quat(const OxQuaternion& q, const OxVector3f& v) {
+static XrVector3f rotate_vector_by_quat(const XrQuaternionf& q, const XrVector3f& v) {
     // t = 2 * cross(q.xyz, v)
-    OxVector3f t;
+    XrVector3f t;
     t.x = 2.0f * (q.y * v.z - q.z * v.y);
     t.y = 2.0f * (q.z * v.x - q.x * v.z);
     t.z = 2.0f * (q.x * v.y - q.y * v.x);
 
     // result = v + q.w * t + cross(q.xyz, t)
-    OxVector3f cross_q_t;
+    XrVector3f cross_q_t;
     cross_q_t.x = q.y * t.z - q.z * t.y;
     cross_q_t.y = q.z * t.x - q.x * t.z;
     cross_q_t.z = q.x * t.y - q.y * t.x;
 
-    OxVector3f res;
+    XrVector3f res;
     res.x = v.x + q.w * t.x + cross_q_t.x;
     res.y = v.y + q.w * t.y + cross_q_t.y;
     res.z = v.z + q.w * t.z + cross_q_t.z;

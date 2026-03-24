@@ -23,10 +23,9 @@ target_include_directories(ox_sim_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/..
-    ${OX_DRIVER_INCLUDE_DIR}
 )
 
-target_link_libraries(ox_sim_tests PRIVATE GTest::gtest GTest::gtest_main)
+target_link_libraries(ox_sim_tests PRIVATE ox_driver_api GTest::gtest GTest::gtest_main)
 
 set_target_properties(ox_sim_tests PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin/tests

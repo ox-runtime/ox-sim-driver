@@ -48,32 +48,34 @@ const char* component_type_name(ComponentType type) {
     }
 }
 
-const char* session_state_name(OxSessionState state) {
+const char* session_state_name(XrSessionState state) {
     switch (state) {
-        case OX_SESSION_STATE_UNKNOWN:
+        case XR_SESSION_STATE_UNKNOWN:
             return "unknown";
-        case OX_SESSION_STATE_IDLE:
+        case XR_SESSION_STATE_IDLE:
             return "idle";
-        case OX_SESSION_STATE_READY:
+        case XR_SESSION_STATE_READY:
             return "ready";
-        case OX_SESSION_STATE_SYNCHRONIZED:
+        case XR_SESSION_STATE_SYNCHRONIZED:
             return "synchronized";
-        case OX_SESSION_STATE_VISIBLE:
+        case XR_SESSION_STATE_VISIBLE:
             return "visible";
-        case OX_SESSION_STATE_FOCUSED:
+        case XR_SESSION_STATE_FOCUSED:
             return "focused";
-        case OX_SESSION_STATE_STOPPING:
+        case XR_SESSION_STATE_STOPPING:
             return "stopping";
-        case OX_SESSION_STATE_EXITING:
+        case XR_SESSION_STATE_LOSS_PENDING:
+            return "loss_pending";
+        case XR_SESSION_STATE_EXITING:
             return "exiting";
         default:
             return "unknown";
     }
 }
 
-bool is_session_active(OxSessionState state) {
-    return state == OX_SESSION_STATE_SYNCHRONIZED || state == OX_SESSION_STATE_VISIBLE ||
-           state == OX_SESSION_STATE_FOCUSED;
+bool is_session_active(XrSessionState state) {
+    return state == XR_SESSION_STATE_SYNCHRONIZED || state == XR_SESSION_STATE_VISIBLE ||
+           state == XR_SESSION_STATE_FOCUSED;
 }
 
 void png_write_callback(void* context, void* data, int size) {
@@ -186,7 +188,7 @@ void HttpServer::ServerThread() {
     crow::SimpleApp& app = *app_;
 
     CROW_ROUTE(app, "/v1/status").methods("GET"_method)([]() {
-        OxSessionState state = OX_SESSION_STATE_UNKNOWN;
+        XrSessionState state = XR_SESSION_STATE_UNKNOWN;
         uint32_t fps = 0;
         if (ox_sim_get_session_state(&state) != OX_SIM_SUCCESS || ox_sim_get_app_fps(&fps) != OX_SIM_SUCCESS) {
             return crow::response(503, "Simulator state unavailable");
@@ -322,7 +324,7 @@ void HttpServer::ServerThread() {
 
     CROW_ROUTE(app, "/v1/devices/<path>").methods("GET"_method)([](const std::string& user_path) {
         const std::string full_user_path = "/" + user_path;
-        OxPose pose = {};
+        XrPosef pose = {};
         uint32_t active = 0;
         if (ox_sim_get_device_pose(full_user_path.c_str(), &pose, &active) != OX_SIM_SUCCESS) {
             return crow::response(404, "Device not found");
@@ -353,7 +355,7 @@ void HttpServer::ServerThread() {
             }
 
             const std::string full_user_path = "/" + user_path;
-            OxPose pose = {};
+            XrPosef pose = {};
             pose.position.x = json["position"]["x"].d();
             pose.position.y = json["position"]["y"].d();
             pose.position.z = json["position"]["z"].d();
@@ -379,7 +381,7 @@ void HttpServer::ServerThread() {
 
         uint32_t boolean_value = 0;
         float float_value = 0.0f;
-        OxVector2f vec2_value = {};
+        XrVector2f vec2_value = {};
         const OxSimResult bool_result =
             ox_sim_get_input_state_boolean(user_path.c_str(), component_path.c_str(), &boolean_value);
         const OxSimResult float_result =
@@ -422,7 +424,7 @@ void HttpServer::ServerThread() {
                                                           static_cast<float>(json["value"].d()));
                 }
             } else if (json.has("x") && json.has("y")) {
-                OxVector2f vec = {static_cast<float>(json["x"].d()), static_cast<float>(json["y"].d())};
+                XrVector2f vec = {static_cast<float>(json["x"].d()), static_cast<float>(json["y"].d())};
                 result = ox_sim_set_input_state_vector2f(user_path.c_str(), component_path.c_str(), &vec);
             }
 

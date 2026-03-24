@@ -5,16 +5,16 @@ import time
 from pathlib import Path
 
 
-class OxVector3f(ctypes.Structure):
+class XrVector3f(ctypes.Structure):
     _fields_ = [("x", ctypes.c_float), ("y", ctypes.c_float), ("z", ctypes.c_float)]
 
 
-class OxQuaternion(ctypes.Structure):
+class XrQuaternionf(ctypes.Structure):
     _fields_ = [("x", ctypes.c_float), ("y", ctypes.c_float), ("z", ctypes.c_float), ("w", ctypes.c_float)]
 
 
-class OxPose(ctypes.Structure):
-    _fields_ = [("position", OxVector3f), ("orientation", OxQuaternion)]
+class XrPosef(ctypes.Structure):
+    _fields_ = [("orientation", XrQuaternionf), ("position", XrVector3f)]
 
 
 def default_library_path() -> Path:
@@ -35,7 +35,7 @@ def main() -> None:
     sim.ox_sim_shutdown.argtypes = []
     sim.ox_sim_set_current_profile.argtypes = [ctypes.c_char_p]
     sim.ox_sim_set_current_profile.restype = ctypes.c_int
-    sim.ox_sim_set_device_pose.argtypes = [ctypes.c_char_p, ctypes.POINTER(OxPose), ctypes.c_uint32]
+    sim.ox_sim_set_device_pose.argtypes = [ctypes.c_char_p, ctypes.POINTER(XrPosef), ctypes.c_uint32]
     sim.ox_sim_set_device_pose.restype = ctypes.c_int
     sim.ox_sim_set_input_state_float.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_float]
     sim.ox_sim_set_input_state_float.restype = ctypes.c_int
@@ -50,9 +50,9 @@ def main() -> None:
     try:
         while True:
             offset += 0.01
-            pose = OxPose(
-                position=OxVector3f(-0.2 + offset, 1.4, -0.4),
-                orientation=OxQuaternion(0.0, 0.0, 0.0, 1.0),
+            pose = XrPosef(
+                orientation=XrQuaternionf(0.0, 0.0, 0.0, 1.0),
+                position=XrVector3f(-0.2 + offset, 1.4, -0.4),
             )
             sim.ox_sim_set_device_pose(b"/user/hand/left", ctypes.byref(pose), 1)
             sim.ox_sim_set_input_state_float(b"/user/hand/left", b"/input/trigger/value", 0.5)
