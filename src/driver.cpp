@@ -32,10 +32,6 @@ const DeviceProfile* current_profile() {
     return GetDeviceProfileByName(profile_name);
 }
 
-OxComponentResult result_to_component_result(OxSimResult result) {
-    return result == OX_SIM_SUCCESS ? OX_COMPONENT_AVAILABLE : OX_COMPONENT_UNAVAILABLE;
-}
-
 }  // namespace
 
 static int simulator_initialize(void) {
@@ -79,48 +75,21 @@ static int simulator_is_driver_running(void) {
     return 1;
 }
 
-static void simulator_get_device_info(OxDeviceInfo* info) {
-    const DeviceProfile* device_profile = current_profile();
-    if (!info || !device_profile) {
-        return;
-    }
-
-    std::snprintf(info->name, sizeof(info->name), "%s", device_profile->name);
-    std::snprintf(info->manufacturer, sizeof(info->manufacturer), "%s", device_profile->manufacturer);
-    std::string serial = std::string(device_profile->serial_prefix) + "-12345";
-    std::snprintf(info->serial, sizeof(info->serial), "%s", serial.c_str());
-    info->vendor_id = device_profile->vendor_id;
-    info->product_id = device_profile->product_id;
-}
-
-static void simulator_get_display_properties(OxDisplayProperties* props) {
+static void simulator_get_system_properties(XrSystemProperties* props) {
     const DeviceProfile* device_profile = current_profile();
     if (!props || !device_profile) {
         return;
     }
 
-    props->display_width = device_profile->display_width;
-    props->display_height = device_profile->display_height;
-    props->recommended_width = device_profile->recommended_width;
-    props->recommended_height = device_profile->recommended_height;
-    props->refresh_rate = device_profile->refresh_rate;
-    props->fov.angleLeft = device_profile->fov_left;
-    props->fov.angleRight = device_profile->fov_right;
-    props->fov.angleUp = device_profile->fov_up;
-    props->fov.angleDown = device_profile->fov_down;
+    std::snprintf(props->systemName, XR_MAX_SYSTEM_NAME_SIZE, "%s", device_profile->name);
+    props->vendorId = device_profile->vendor_id;
+    props->graphicsProperties.maxSwapchainImageWidth = device_profile->display_width;
+    props->graphicsProperties.maxSwapchainImageHeight = device_profile->display_height;
+    props->trackingProperties.orientationTracking = device_profile->has_orientation_tracking ? XR_TRUE : XR_FALSE;
+    props->trackingProperties.positionTracking = device_profile->has_position_tracking ? XR_TRUE : XR_FALSE;
 }
 
-static void simulator_get_tracking_capabilities(OxTrackingCapabilities* caps) {
-    const DeviceProfile* device_profile = current_profile();
-    if (!caps || !device_profile) {
-        return;
-    }
-
-    caps->has_position_tracking = device_profile->has_position_tracking ? 1u : 0u;
-    caps->has_orientation_tracking = device_profile->has_orientation_tracking ? 1u : 0u;
-}
-
-static void simulator_update_view_pose(XrTime predicted_time, uint32_t eye_index, XrPosef* out_pose) {
+static void simulator_update_view(XrTime predicted_time, uint32_t eye_index, XrView* out_view) {
     (void)predicted_time;
 
     XrPosef hmd_pose = {{0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 1.6f, 0.0f}};
@@ -132,10 +101,17 @@ static void simulator_update_view_pose(XrTime predicted_time, uint32_t eye_index
     const XrVector3f eye_local = {eye_offset, 0.0f, 0.0f};
     const XrVector3f rotated_offset = rotate_vector_by_quat(hmd_pose.orientation, eye_local);
 
-    *out_pose = hmd_pose;
-    out_pose->position.x += rotated_offset.x;
-    out_pose->position.y += rotated_offset.y;
-    out_pose->position.z += rotated_offset.z;
+    out_view->pose = hmd_pose;
+    out_view->pose.position.x += rotated_offset.x;
+    out_view->pose.position.y += rotated_offset.y;
+    out_view->pose.position.z += rotated_offset.z;
+
+    const DeviceProfile* profile = current_profile();
+    if (profile) {
+        out_view->fov = {profile->fov_left, profile->fov_right, profile->fov_up, profile->fov_down};
+    } else {
+        out_view->fov = {-0.785398f, 0.785398f, 0.785398f, -0.785398f};
+    }
 }
 
 static void simulator_update_devices(XrTime predicted_time, OxDeviceState* out_states, uint32_t* out_count) {
@@ -143,22 +119,34 @@ static void simulator_update_devices(XrTime predicted_time, OxDeviceState* out_s
     sim_copy_devices(out_states, OX_MAX_DEVICES, out_count);
 }
 
-static OxComponentResult simulator_get_input_state_boolean(XrTime predicted_time, const char* user_path,
-                                                           const char* component_path, uint32_t* out_value) {
+static XrResult simulator_get_input_state_boolean(XrTime predicted_time, const char* user_path,
+                                                  const char* component_path, XrBool32* out_value) {
     (void)predicted_time;
-    return result_to_component_result(ox_sim_get_input_state_boolean(user_path, component_path, out_value));
+    uint32_t raw_value = 0;
+    const OxSimResult result = ox_sim_get_input_state_boolean(user_path, component_path, &raw_value);
+    if (result != OX_SIM_SUCCESS) {
+        return XR_ERROR_PATH_UNSUPPORTED;
+    }
+    if (out_value) {
+        *out_value = raw_value ? XR_TRUE : XR_FALSE;
+    }
+    return XR_SUCCESS;
 }
 
-static OxComponentResult simulator_get_input_state_float(XrTime predicted_time, const char* user_path,
-                                                         const char* component_path, float* out_value) {
+static XrResult simulator_get_input_state_float(XrTime predicted_time, const char* user_path,
+                                                const char* component_path, float* out_value) {
     (void)predicted_time;
-    return result_to_component_result(ox_sim_get_input_state_float(user_path, component_path, out_value));
+    return ox_sim_get_input_state_float(user_path, component_path, out_value) == OX_SIM_SUCCESS
+               ? XR_SUCCESS
+               : XR_ERROR_PATH_UNSUPPORTED;
 }
 
-static OxComponentResult simulator_get_input_state_vector2f(XrTime predicted_time, const char* user_path,
-                                                            const char* component_path, XrVector2f* out_value) {
+static XrResult simulator_get_input_state_vector2f(XrTime predicted_time, const char* user_path,
+                                                   const char* component_path, XrVector2f* out_value) {
     (void)predicted_time;
-    return result_to_component_result(ox_sim_get_input_state_vector2f(user_path, component_path, out_value));
+    return ox_sim_get_input_state_vector2f(user_path, component_path, out_value) == OX_SIM_SUCCESS
+               ? XR_SUCCESS
+               : XR_ERROR_PATH_UNSUPPORTED;
 }
 
 static uint32_t simulator_get_interaction_profiles(const char** out_profiles, uint32_t max_count) {
@@ -190,10 +178,8 @@ extern "C" OX_DRIVER_EXPORT int ox_driver_register(OxDriverCallbacks* callbacks)
     callbacks->shutdown = simulator_shutdown;
     callbacks->is_driver_running = simulator_is_driver_running;
     callbacks->is_device_connected = simulator_is_device_connected;
-    callbacks->get_device_info = simulator_get_device_info;
-    callbacks->get_display_properties = simulator_get_display_properties;
-    callbacks->get_tracking_capabilities = simulator_get_tracking_capabilities;
-    callbacks->update_view_pose = simulator_update_view_pose;
+    callbacks->get_system_properties = simulator_get_system_properties;
+    callbacks->update_view = simulator_update_view;
     callbacks->update_devices = simulator_update_devices;
     callbacks->get_input_state_boolean = simulator_get_input_state_boolean;
     callbacks->get_input_state_float = simulator_get_input_state_float;

@@ -21,20 +21,12 @@ FetchContent_Declare(
     GIT_SHALLOW true
 )
 
-FetchContent_GetProperties(crow)
-if(NOT crow_POPULATED)
-    FetchContent_Populate(crow)
-endif()
+FetchContent_MakeAvailable(asio)
+set(ASIO_INCLUDE_DIR ${asio_SOURCE_DIR}/asio/include)
 
-FetchContent_GetProperties(asio)
-if(NOT asio_POPULATED)
-    FetchContent_Populate(asio)
-endif()
+FetchContent_MakeAvailable(crow)
 
-FetchContent_GetProperties(stb)
-if(NOT stb_POPULATED)
-    FetchContent_Populate(stb)
-endif()
+FetchContent_MakeAvailable(stb)
 
 set(REST_API_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/http_server.cpp
@@ -44,7 +36,7 @@ set(REST_API_SOURCES
 set(REST_API_INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${crow_SOURCE_DIR}/include
-    ${asio_SOURCE_DIR}/asio/include
+    ${ASIO_INCLUDE_DIR}
     ${stb_SOURCE_DIR}
     PARENT_SCOPE
 )
