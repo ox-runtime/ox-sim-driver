@@ -32,15 +32,17 @@ const void* g_frame_pixels[2] = {};
 uint32_t g_frame_sizes[2] = {};
 uint32_t g_frame_w = 0;
 uint32_t g_frame_h = 0;
-std::atomic<bool> g_has_new_frame{false};
 std::atomic<uint32_t> g_session_state{OX_SESSION_STATE_UNKNOWN};
 std::atomic<uint32_t> g_app_fps{0};
+std::atomic<uint64_t> g_frame_timestamp_ns{0};
 int64_t g_last_frame_ms = 0;
 std::deque<int64_t> g_dt_history;
 
 const ox_sim::DeviceProfile* default_profile() { return &ox_sim::GetDeviceProfile(ox_sim::DeviceType::OCULUS_QUEST_2); }
 
 bool is_initialized_locked() { return g_init_count > 0 && g_profile != nullptr; }
+
+OxSimResult require_initialized();
 
 int find_device_index(const char* user_path) {
     if (!user_path) {
@@ -139,11 +141,16 @@ void reset_frame_state() {
     g_frame_sizes[1] = 0;
     g_frame_w = 0;
     g_frame_h = 0;
-    g_has_new_frame.store(false, std::memory_order_relaxed);
     g_session_state.store(OX_SESSION_STATE_UNKNOWN, std::memory_order_relaxed);
     g_app_fps.store(0, std::memory_order_relaxed);
+    g_frame_timestamp_ns.store(0, std::memory_order_relaxed);
     g_last_frame_ms = 0;
     g_dt_history.clear();
+}
+
+uint64_t current_time_ns() {
+    using namespace std::chrono;
+    return static_cast<uint64_t>(duration_cast<nanoseconds>(steady_clock::now().time_since_epoch()).count());
 }
 
 void update_fps() {
@@ -637,10 +644,9 @@ extern "C" OX_DRIVER_EXPORT OxSimResult ox_sim_get_frame_preview(OxSimFramePrevi
     out_preview->data_size[1] = g_frame_sizes[1];
     out_preview->width = g_frame_w;
     out_preview->height = g_frame_h;
-    out_preview->has_new_frame = g_has_new_frame.load(std::memory_order_relaxed) ? 1u : 0u;
     out_preview->app_fps = g_app_fps.load(std::memory_order_relaxed);
     out_preview->session_state = static_cast<OxSessionState>(g_session_state.load(std::memory_order_relaxed));
-    g_has_new_frame.store(false, std::memory_order_release);
+    out_preview->frame_timestamp_ns = g_frame_timestamp_ns.load(std::memory_order_relaxed);
     return OX_SIM_SUCCESS;
 }
 
@@ -657,7 +663,7 @@ extern "C" void sim_submit_frame(uint32_t eye, uint32_t w, uint32_t h, const voi
     if (eye == 0) {
         update_fps();
     }
-    g_has_new_frame.store(true, std::memory_order_release);
+    g_frame_timestamp_ns.store(current_time_ns(), std::memory_order_relaxed);
 }
 
 extern "C" void sim_notify_session(OxSessionState state) {

@@ -16,10 +16,26 @@ option(OX_SIM_BUILD_EXAMPLES "Build simulator API examples" ON)
 option(OX_SIM_BUILD_TESTS "Build simulator API tests" ON)
 
 include(CTest)
+include(FetchContent)
+
+set(OX_DRIVER_HEADER_LOCAL_PATH "${CMAKE_CURRENT_SOURCE_DIR}/ox_driver.h")
+if(EXISTS "${OX_DRIVER_HEADER_LOCAL_PATH}")
+    set(OX_DRIVER_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+else()
+    FetchContent_Declare(
+        ox_driver_header
+        URL https://github.com/ox-runtime/ox-runtime/releases/latest/download/ox_driver.h
+        DOWNLOAD_NO_EXTRACT TRUE
+        DOWNLOAD_NAME ox_driver.h
+    )
+    FetchContent_GetProperties(ox_driver_header)
+    if(NOT ox_driver_header_POPULATED)
+        FetchContent_Populate(ox_driver_header)
+    endif()
+    set(OX_DRIVER_INCLUDE_DIR "${ox_driver_header_SOURCE_DIR}")
+endif()
 
 if(NOT TARGET spdlog::spdlog)
-    include(FetchContent)
-
     FetchContent_Declare(
         spdlog
         GIT_REPOSITORY https://github.com/gabime/spdlog
@@ -42,6 +58,7 @@ endif()
 
 # Add subdirectories
 add_subdirectory(src/gui)
+add_subdirectory(src/rest_api)
 
 # Source files
 set(SIMULATOR_CORE_SOURCES
@@ -52,6 +69,7 @@ set(SIMULATOR_SOURCES
     src/driver.cpp
     ${SIMULATOR_CORE_SOURCES}
     ${GUI_SOURCES}
+    ${REST_API_SOURCES}
 )
 
 # Driver shared library - output as ox_driver.dll / libox_driver.so / libox_driver.dylib
@@ -79,11 +97,17 @@ endif()
 target_include_directories(ox-simulator PUBLIC
     include
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${OX_DRIVER_INCLUDE_DIR}
 )
 
 target_include_directories(ox-simulator PRIVATE
     src
     ${GUI_INCLUDE_DIRS}
+    ${REST_API_INCLUDE_DIRS}
+)
+
+target_compile_definitions(ox-simulator PRIVATE
+    ${REST_API_COMPILE_DEFINITIONS}
 )
 
 # Link libraries
@@ -109,6 +133,7 @@ if(OX_SIM_BUILD_EXAMPLES)
     target_include_directories(ox_simulator_api_example PRIVATE
         include
         ${CMAKE_CURRENT_SOURCE_DIR}
+        ${OX_DRIVER_INCLUDE_DIR}
     )
 
     target_link_libraries(ox_simulator_api_example PRIVATE ox-simulator spdlog::spdlog)

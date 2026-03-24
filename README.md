@@ -5,26 +5,27 @@
 - the low-level `ox_driver_register` ABI consumed by `ox-runtime`
 - a separate high-level C automation API declared in `include/ox_sim.h`
 
-The GUI still talks directly to `SimulatorCore`. There is no HTTP server and no config file.
+Both the GUI and the local REST server talk to the same internal C automation API. When the driver is loaded by `ox-runtime`, it starts the GUI and the HTTP API server together. The GUI can turn the HTTP API on or off at runtime.
 
 ## Build
 
-1. Copy the current `ox_driver.h` into the repository root.
-2. (Linux-only) Install platform dependencies:
+1. (Linux-only) Install platform dependencies:
 
 ```bash
 # Ubuntu / Debian
 sudo apt-get update
 sudo apt-get install -y \
   libgl1-mesa-dev \
+  libxcb-dev \
   libx11-dev \
   libxrandr-dev \
   libxinerama-dev \
   libxcursor-dev \
   libxi-dev \
+  libpng-dev \
   pkg-config
 ```
-3. Configure and build:
+2. Configure and build:
 
 ```bash
 cmake -B build
@@ -42,9 +43,34 @@ If `OX_SIM_BUILD_EXAMPLES` is enabled, the C API example is also built under `bu
 ## Runtime Behavior
 
 - The simulator defaults to the `oculus_quest_2` profile on first initialization.
-- When loaded as a driver, it starts the simulator GUI automatically.
-- When used through the C API alone, it does not force the GUI to open.
-- The active profile can be changed at runtime through either the GUI or the C API.
+- When loaded as a driver, it starts the simulator GUI and the HTTP API server automatically.
+- When used through the C API alone, it does not start the GUI and the HTTP API server automatically.
+- The active profile can be changed at runtime through the GUI, the REST API, or the C API.
+- The eye preview supports cursor coordinate readout, drag-to-look navigation, `WASD`/arrow-key movement, and copying the current preview image to the clipboard.
+
+## HTTP API
+
+Default base URL: `http://127.0.0.1:8765`
+
+Available endpoints:
+
+- `GET /v1/status`
+- `GET /v1/views/0`
+- `GET /v1/views/1`
+- `GET /v1/views/<eye>?size=<width>`
+- `GET /v1/profile`
+- `PUT /v1/profile`
+- `GET /v1/devices/<user path without leading slash>`
+- `PUT /v1/devices/<user path without leading slash>`
+- `GET /v1/inputs/<user path without leading slash>/<component path starting at input/...>`
+- `PUT /v1/inputs/<user path without leading slash>/<component path starting at input/...>`
+
+Examples:
+
+- `GET /v1/devices/user/hand/left`
+- `PUT /v1/devices/user/vive_tracker_htcx/role/waist`
+- `GET /v1/inputs/user/hand/left/input/trigger/value`
+- `PUT /v1/inputs/user/hand/right/input/a/click`
 
 ## C API
 
@@ -85,5 +111,5 @@ ox/
 ## Notes
 
 - The simulator C API is intended for bindings and automation.
-- `SimulatorCore` handles shared device/input state locking between the GUI and the automation API.
-- The small internal runtime layer only coordinates process-global lifetime, the current profile pointer, frame preview storage, and GUI startup.
+- The REST server uses the same `ox_sim_*` API surface as the GUI.
+- The small internal runtime layer only coordinates process-global lifetime, the current profile pointer, frame preview storage, GUI startup, and HTTP server startup.

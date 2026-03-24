@@ -8,6 +8,7 @@
 
 #include "device_profiles.hpp"
 #include "gui/gui_window.h"
+#include "rest_api/http_server.h"
 
 using namespace ox_sim;
 
@@ -44,8 +45,13 @@ static int simulator_initialize(void) {
         return 0;
     }
 
+    if (!GetHttpServer().Start(kHttpServerPort)) {
+        spdlog::warn("Failed to start HTTP API server on port {}", kHttpServerPort);
+    }
+
     if (!g_gui.Start()) {
         spdlog::error("Failed to start GUI window");
+        GetHttpServer().Stop();
         ox_sim_shutdown();
         return 0;
     }
@@ -57,6 +63,7 @@ static int simulator_initialize(void) {
 static void simulator_shutdown(void) {
     spdlog::info("Shutting down simulator driver...");
     g_gui.Stop();
+    GetHttpServer().Stop();
     ox_sim_shutdown();
     spdlog::info("Simulator driver shut down");
 }

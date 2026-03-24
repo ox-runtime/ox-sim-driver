@@ -1,10 +1,15 @@
 #include "gui_window.h"
 
 #include <GLFW/glfw3.h>
+#ifndef CLIP_ENABLE_IMAGE
+#define CLIP_ENABLE_IMAGE 1
+#endif
+#include <clip.h>
 #include <ox_sim.h>
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <array>
 #include <cfloat>
 #include <cmath>
 #include <cstring>
@@ -14,6 +19,7 @@
 
 #include "device_profiles.hpp"
 #include "imgui_impl_opengl3.h"
+#include "rest_api/http_server.h"
 #include "utils.hpp"
 #include "vog.h"
 
@@ -79,8 +85,6 @@ void GuiWindow::Stop() { window_.Stop(); }
 void GuiWindow::RenderFrame() {
     const vog::ThemeColors& tc = vog::Window::GetTheme().colors;
 
-    ImGuiIO& io = ImGui::GetIO();
-
     ImVec2 content_size = ImGui::GetContentRegionAvail();
     const ImGuiStyle& style = ImGui::GetStyle();
 
@@ -91,10 +95,13 @@ void GuiWindow::RenderFrame() {
     ImGui::BeginChild("TopToolbar", ImVec2(0, top_toolbar_h), false, ImGuiWindowFlags_NoScrollbar);
     {
         const float btn_runtime_w = 190.0f;
+        const float btn_icon_w = ImGui::GetFrameHeight();
+        const float btn_api_w = 160.0f;
         const float lbl_device_w = ImGui::CalcTextSize("Device:").x + style.ItemSpacing.x;
         const float combo_device_w = 190.0f;
         const float spacing = style.ItemSpacing.x * 3.0f;
-        const float total_w = btn_runtime_w + spacing + lbl_device_w + combo_device_w;
+        const float total_w =
+            btn_runtime_w + btn_icon_w + spacing + lbl_device_w + combo_device_w + spacing + btn_api_w + btn_icon_w;
         const ImVec2 avail = ImGui::GetContentRegionAvail();
 
         float start_x = (avail.x - total_w) * 0.5f;
@@ -117,6 +124,33 @@ void GuiWindow::RenderFrame() {
         vog::widgets::ShowItemTooltip(
             "Copy the path to the OpenXR runtime JSON file to clipboard. Set this as the XR_RUNTIME_JSON environment "
             "variable.");
+
+        ImGui::SameLine(0, spacing);
+
+        HttpServer& http_server = GetHttpServer();
+        bool api_on = http_server.IsRunning();
+        if (vog::widgets::ToggleButton("API Server:", &api_on, false)) {
+            if (api_on) {
+                if (http_server.Start(kHttpServerPort)) {
+                    status_message_ = std::string("API Server enabled (port ") + std::to_string(kHttpServerPort) + ")";
+                } else {
+                    status_message_ =
+                        std::string("Failed to start API server on port ") + std::to_string(kHttpServerPort);
+                }
+            } else {
+                http_server.Stop();
+                status_message_ = "API Server disabled";
+            }
+        }
+        vog::widgets::ShowItemTooltip("Toggle the local HTTP API server on port 8765");
+
+        ImGui::SameLine();
+        if (ImGui::Button(ICON_FA_GLOBE "##copy_api_url")) {
+            const std::string api_url = std::string("http://127.0.0.1:") + std::to_string(kHttpServerPort);
+            glfwSetClipboardString(window_.GetNativeWindow(), api_url.c_str());
+            status_message_ = "Copied API URL to clipboard";
+        }
+        vog::widgets::ShowItemTooltip("Copy the local HTTP API base URL to the clipboard");
 
         ImGui::SameLine(0, spacing);
 
@@ -209,8 +243,13 @@ void GuiWindow::RenderFrame() {
             if (is_session_active()) {
                 ox_sim_get_app_fps(&app_fps);
             }
-            ImGui::Text("Display: %dx%d @ %u fps  |  %s", p->display_width, p->display_height, app_fps,
-                        status_message_.c_str());
+            ImGui::Text("Display: %dx%d @ %u fps", p->display_width, p->display_height, app_fps);
+            if (!preview_hover_text_.empty()) {
+                ImGui::SameLine();
+                ImGui::Text("| %s", preview_hover_text_.c_str());
+            }
+            ImGui::SameLine();
+            ImGui::Text("| %s", status_message_.c_str());
         } else {
             ImGui::Text("%s", status_message_.c_str());
         }
@@ -222,6 +261,7 @@ void GuiWindow::RenderFrame() {
 void GuiWindow::RenderFramePreview() {
     using vog::widgets::Combo;
     const vog::ThemeColors& tc = vog::Window::GetTheme().colors;
+    preview_hover_text_.clear();
 
     UpdateFrameTextures();
 
@@ -269,6 +309,27 @@ void GuiWindow::RenderFramePreview() {
                       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     {
         const ImVec2 avail = ImGui::GetContentRegionAvail();
+        std::vector<PreviewImageRect> image_rects;
+        ImVec2 composite_min(0.0f, 0.0f);
+        ImVec2 composite_max(0.0f, 0.0f);
+        auto capture_image_rect = [&](int eye_index) {
+            PreviewImageRect rect;
+            rect.eye_index = eye_index;
+            rect.visible = true;
+            rect.min = ImGui::GetItemRectMin();
+            rect.max = ImGui::GetItemRectMax();
+            image_rects.push_back(rect);
+
+            if (image_rects.size() == 1) {
+                composite_min = rect.min;
+                composite_max = rect.max;
+            } else {
+                composite_min.x = std::min(composite_min.x, rect.min.x);
+                composite_min.y = std::min(composite_min.y, rect.min.y);
+                composite_max.x = std::max(composite_max.x, rect.max.x);
+                composite_max.y = std::max(composite_max.y, rect.max.y);
+            }
+        };
 
         if (!has_image) {
             const char* msg = "No image received";
@@ -290,6 +351,7 @@ void GuiWindow::RenderFramePreview() {
             if (preview_textures_[0]) {
                 ImGui::Image((ImTextureID)(intptr_t)preview_textures_[0], ImVec2(w_each, h_each), ImVec2(0, 1),
                              ImVec2(1, 0), ImVec4(1, 1, 1, 1), tc.border.value());
+                capture_image_rect(0);
             } else {
                 ImGui::Dummy(ImVec2(w_each, h_each));
             }
@@ -297,6 +359,7 @@ void GuiWindow::RenderFramePreview() {
             if (preview_textures_[1]) {
                 ImGui::Image((ImTextureID)(intptr_t)preview_textures_[1], ImVec2(w_each, h_each), ImVec2(0, 1),
                              ImVec2(1, 0), ImVec4(1, 1, 1, 1), tc.border.value());
+                capture_image_rect(1);
             } else {
                 ImGui::Dummy(ImVec2(w_each, h_each));
             }
@@ -316,12 +379,17 @@ void GuiWindow::RenderFramePreview() {
                 ImGui::SetCursorPos(ImVec2(x_off, y_off));
                 ImGui::Image((ImTextureID)(intptr_t)preview_textures_[eye], ImVec2(img_w, img_h), ImVec2(0, 1),
                              ImVec2(1, 0), ImVec4(1, 1, 1, 1), tc.border.value());
+                capture_image_rect(eye);
             } else {
                 ImVec2 ts = ImGui::CalcTextSize(no_msg);
                 ImGui::SetCursorPos(ImVec2((avail.x - ts.x) * 0.5f, (avail.y - ts.y) * 0.5f));
                 ImGui::Text("%s", no_msg);
             }
         }
+
+        const ImVec2 preview_min = ImGui::GetWindowPos();
+        const ImVec2 preview_max(preview_min.x + ImGui::GetWindowSize().x, preview_min.y + ImGui::GetWindowSize().y);
+        HandlePreviewInteraction(preview_min, preview_max, image_rects, composite_min, composite_max, has_image);
     }
     ImGui::EndChild();
     ImGui::PopStyleColor();
@@ -329,16 +397,23 @@ void GuiWindow::RenderFramePreview() {
 
 void GuiWindow::UpdateFrameTextures() {
     OxSimFramePreview frame_preview = {};
-    if (ox_sim_get_frame_preview(&frame_preview) != OX_SIM_SUCCESS || !frame_preview.has_new_frame) return;
+    if (ox_sim_get_frame_preview(&frame_preview) != OX_SIM_SUCCESS) return;
+    if (frame_preview.frame_timestamp_ns == 0 || frame_preview.frame_timestamp_ns == last_preview_frame_timestamp_ns_) {
+        return;
+    }
 
     uint32_t w = frame_preview.width;
     uint32_t h = frame_preview.height;
+    last_preview_frame_timestamp_ns_ = frame_preview.frame_timestamp_ns;
     if (w == 0 || h == 0) return;
 
     for (int eye = 0; eye < 2; ++eye) {
         if (!frame_preview.pixel_data[eye]) continue;
         size_t expected_size = w * h * 4;
         if (frame_preview.data_size[eye] != expected_size) continue;
+
+        const uint8_t* pixels = static_cast<const uint8_t*>(frame_preview.pixel_data[eye]);
+        preview_pixels_[eye].assign(pixels, pixels + expected_size);
 
         if (!preview_textures_[eye]) {
             glGenTextures(1, &preview_textures_[eye]);
@@ -348,12 +423,12 @@ void GuiWindow::UpdateFrameTextures() {
             spdlog::info("[GUI] Created OpenGL texture {} for eye {}", preview_textures_[eye], eye);
         }
         glBindTexture(GL_TEXTURE_2D, preview_textures_[eye]);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, frame_preview.pixel_data[eye]);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
     }
     glBindTexture(GL_TEXTURE_2D, 0);
     preview_width_ = w;
     preview_height_ = h;
-    preview_textures_valid_ = true;
+    preview_textures_valid_ = preview_textures_[0] != 0 || preview_textures_[1] != 0;
 }
 
 void GuiWindow::RenderDevicePanel(const DeviceDef& device, int device_index, float panel_width) {
@@ -604,6 +679,227 @@ void GuiWindow::ApplyRotation(OxQuaternion& q, const OxVector3f& a, float angle)
     q.y = ny / len;
     q.z = nz / len;
     q.w = nw / len;
+}
+
+bool GuiWindow::GetHeadPose(OxPose& pose, uint32_t& is_active) const {
+    return ox_sim_get_device_pose("/user/head", &pose, &is_active) == OX_SIM_SUCCESS;
+}
+
+bool GuiWindow::UpdatePreviewHoverText(const std::vector<PreviewImageRect>& image_rects) {
+    const ImVec2 mouse = ImGui::GetIO().MousePos;
+    preview_hover_text_.clear();
+
+    for (const PreviewImageRect& rect : image_rects) {
+        if (!rect.visible) {
+            continue;
+        }
+
+        if (mouse.x < rect.min.x || mouse.x > rect.max.x || mouse.y < rect.min.y || mouse.y > rect.max.y) {
+            continue;
+        }
+
+        const float width = std::max(rect.max.x - rect.min.x, 1.0f);
+        const float height = std::max(rect.max.y - rect.min.y, 1.0f);
+        const uint32_t pixel_x = std::min(static_cast<uint32_t>(((mouse.x - rect.min.x) / width) * preview_width_),
+                                          preview_width_ > 0 ? preview_width_ - 1 : 0);
+        const uint32_t pixel_y = std::min(static_cast<uint32_t>(((mouse.y - rect.min.y) / height) * preview_height_),
+                                          preview_height_ > 0 ? preview_height_ - 1 : 0);
+        const char* eye_name = rect.eye_index == 1 ? "Cursor: Right" : "Cursor: Left";
+        preview_hover_text_ =
+            std::string(eye_name) + " (" + std::to_string(pixel_x) + ", " + std::to_string(pixel_y) + ")";
+        return true;
+    }
+
+    return false;
+}
+
+void GuiWindow::HandlePreviewNavigation(bool allow_navigation, bool block_navigation) {
+    if (!allow_navigation || block_navigation) {
+        return;
+    }
+
+    ImGuiIO& io = ImGui::GetIO();
+    if (io.WantTextInput) {
+        return;
+    }
+
+    OxPose head_pose = {};
+    uint32_t is_active = 0;
+    if (!GetHeadPose(head_pose, is_active)) {
+        return;
+    }
+
+    OxVector3f euler = {};
+    QuatToEuler(head_pose.orientation, euler);
+    const float yaw = DegToRad(euler.y);
+    OxVector3f forward = {std::sin(yaw), 0.0f, -std::cos(yaw)};
+    OxVector3f right = {std::cos(yaw), 0.0f, std::sin(yaw)};
+    OxVector3f move = {0.0f, 0.0f, 0.0f};
+
+    if (ImGui::IsKeyDown(ImGuiKey_W) || ImGui::IsKeyDown(ImGuiKey_UpArrow)) {
+        move.x += forward.x;
+        move.z += forward.z;
+    }
+    if (ImGui::IsKeyDown(ImGuiKey_S) || ImGui::IsKeyDown(ImGuiKey_DownArrow)) {
+        move.x -= forward.x;
+        move.z -= forward.z;
+    }
+    if (ImGui::IsKeyDown(ImGuiKey_D) || ImGui::IsKeyDown(ImGuiKey_RightArrow)) {
+        move.x += right.x;
+        move.z += right.z;
+    }
+    if (ImGui::IsKeyDown(ImGuiKey_A) || ImGui::IsKeyDown(ImGuiKey_LeftArrow)) {
+        move.x -= right.x;
+        move.z -= right.z;
+    }
+
+    const float move_len = std::sqrt(move.x * move.x + move.z * move.z);
+    if (move_len <= 0.0f || io.DeltaTime <= 0.0f) {
+        return;
+    }
+
+    const float speed = (ImGui::IsKeyDown(ImGuiKey_LeftShift) || ImGui::IsKeyDown(ImGuiKey_RightShift)) ? 4.5f : 1.5f;
+    const float step = (speed * io.DeltaTime) / move_len;
+    head_pose.position.x += move.x * step;
+    head_pose.position.z += move.z * step;
+    ox_sim_set_device_pose("/user/head", &head_pose, is_active);
+}
+
+bool GuiWindow::CopyPreviewPixelsToClipboard(const std::vector<uint8_t>& pixels, uint32_t width, uint32_t height) {
+    if (pixels.size() != static_cast<size_t>(width) * height * 4) {
+        status_message_ = "Preview copy failed: unexpected pixel buffer size";
+        return false;
+    }
+
+    clip::image_spec spec;
+    spec.width = width;
+    spec.height = height;
+    spec.bits_per_pixel = 32;
+    spec.bytes_per_row = width * 4;
+    spec.red_mask = 0x000000ff;
+    spec.green_mask = 0x0000ff00;
+    spec.blue_mask = 0x00ff0000;
+    spec.alpha_mask = 0xff000000;
+    spec.red_shift = 0;
+    spec.green_shift = 8;
+    spec.blue_shift = 16;
+    spec.alpha_shift = 24;
+
+    clip::image image(pixels.data(), spec);
+    if (!clip::set_image(image)) {
+        status_message_ = "Preview copy failed: could not write image to clipboard";
+        return false;
+    }
+
+    return true;
+}
+
+bool GuiWindow::CopyCurrentPreviewToClipboard() {
+    if (preview_width_ == 0 || preview_height_ == 0) {
+        status_message_ = "No eye texture available to copy";
+        return false;
+    }
+
+    if (preview_eye_selection_ == 2) {
+        const bool has_left = !preview_pixels_[0].empty();
+        const bool has_right = !preview_pixels_[1].empty();
+        if (!has_left && !has_right) {
+            status_message_ = "No eye texture available to copy";
+            return false;
+        }
+
+        std::vector<uint8_t> composite(static_cast<size_t>(preview_width_) * 2 * preview_height_ * 4, 0);
+        for (uint32_t y = 0; y < preview_height_; ++y) {
+            for (uint32_t x = 0; x < preview_width_; ++x) {
+                const size_t src_index = (static_cast<size_t>(y) * preview_width_ + x) * 4;
+                const size_t left_dst = (static_cast<size_t>(y) * (preview_width_ * 2) + x) * 4;
+                const size_t right_dst = left_dst + static_cast<size_t>(preview_width_) * 4;
+
+                if (has_left) {
+                    std::memcpy(&composite[left_dst], &preview_pixels_[0][src_index], 4);
+                }
+                if (has_right) {
+                    std::memcpy(&composite[right_dst], &preview_pixels_[1][src_index], 4);
+                }
+            }
+        }
+
+        if (CopyPreviewPixelsToClipboard(composite, preview_width_ * 2, preview_height_)) {
+            status_message_ = "Copied eye texture preview to clipboard";
+            return true;
+        }
+        return false;
+    }
+
+    const int eye = preview_eye_selection_ == 1 ? 1 : 0;
+    if (preview_pixels_[eye].empty()) {
+        status_message_ = eye == 1 ? "No right eye texture available to copy" : "No left eye texture available to copy";
+        return false;
+    }
+
+    if (CopyPreviewPixelsToClipboard(preview_pixels_[eye], preview_width_, preview_height_)) {
+        status_message_ = "Copied eye texture preview to clipboard";
+        return true;
+    }
+
+    return false;
+}
+
+void GuiWindow::HandlePreviewInteraction(const ImVec2& preview_min, const ImVec2& preview_max,
+                                         const std::vector<PreviewImageRect>& image_rects, const ImVec2& composite_min,
+                                         const ImVec2& composite_max, bool has_image) {
+    ImGuiIO& io = ImGui::GetIO();
+    const ImVec2 mouse = io.MousePos;
+    const bool preview_hovered =
+        mouse.x >= preview_min.x && mouse.x <= preview_max.x && mouse.y >= preview_min.y && mouse.y <= preview_max.y;
+    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+        preview_has_focus_ = preview_hovered;
+    }
+
+    const bool hovering_image = UpdatePreviewHoverText(image_rects);
+
+    if (preview_hovered && ImGui::IsMouseReleased(ImGuiMouseButton_Right)) {
+        ImGui::OpenPopup("PreviewContextMenu");
+    }
+
+    bool copy_button_hovered = false;
+    if (preview_hovered && has_image && !image_rects.empty()) {
+        const float button_size = ImGui::GetFrameHeight();
+        ImGui::SetCursorScreenPos(ImVec2(composite_max.x - button_size - 8.0f, composite_min.y + 8.0f));
+        if (ImGui::Button(ICON_FA_COPY "##copy_preview_image", ImVec2(button_size, button_size))) {
+            CopyCurrentPreviewToClipboard();
+        }
+        copy_button_hovered = ImGui::IsItemHovered();
+        vog::widgets::ShowItemTooltip("Copy the current eye texture preview to the clipboard");
+    }
+
+    if (ImGui::BeginPopup("PreviewContextMenu")) {
+        if (ImGui::MenuItem("Copy to Clipboard", nullptr, false, has_image)) {
+            CopyCurrentPreviewToClipboard();
+        }
+        ImGui::EndPopup();
+    }
+
+    if (hovering_image && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !copy_button_hovered) {
+        preview_drag_active_ = true;
+    }
+    if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+        preview_drag_active_ = false;
+    }
+
+    if (preview_drag_active_ && !copy_button_hovered) {
+        if (std::abs(io.MouseDelta.x) > 0.0f || std::abs(io.MouseDelta.y) > 0.0f) {
+            OxPose head_pose = {};
+            uint32_t is_active = 0;
+            if (GetHeadPose(head_pose, is_active)) {
+                ApplyRotation(head_pose.orientation, OxVector3f{0.0f, 1.0f, 0.0f}, DegToRad(-io.MouseDelta.x * 0.25f));
+                ApplyRotation(head_pose.orientation, OxVector3f{1.0f, 0.0f, 0.0f}, DegToRad(-io.MouseDelta.y * 0.25f));
+                ox_sim_set_device_pose("/user/head", &head_pose, is_active);
+            }
+        }
+    }
+
+    HandlePreviewNavigation(preview_has_focus_, copy_button_hovered || ImGui::IsPopupOpen("PreviewContextMenu"));
 }
 
 }  // namespace ox_sim
