@@ -46,53 +46,14 @@ If `OX_SIM_BUILD_EXAMPLES` is enabled, the C API example is also built under `bu
 - When loaded as a driver, it starts the simulator GUI and the HTTP API server automatically.
 - When used through the C API alone, it does not start the GUI and the HTTP API server automatically.
 - The active profile can be changed at runtime through the GUI, the REST API, or the C API.
-- The eye preview supports cursor coordinate readout, drag-to-look navigation, `WASD`/arrow-key movement, and copying the current preview image to the clipboard.
+- The eye preview supports cursor coordinate readout, FPS-style drag-to-look navigation, yaw-relative `WASD` movement with world-up `R/F`, arrow-key pitch/yaw that ignores roll, and copying the current preview image to the clipboard from the preview overlay button.
 
-## HTTP API
+## Documentation
 
-Default base URL: `http://127.0.0.1:8765`
-
-Available endpoints:
-
-- `GET /v1/status`
-- `GET /v1/views/0`
-- `GET /v1/views/1`
-- `GET /v1/views/<eye>?size=<width>`
-- `GET /v1/profile`
-- `PUT /v1/profile`
-- `GET /v1/devices/<user path without leading slash>`
-- `PUT /v1/devices/<user path without leading slash>`
-- `GET /v1/inputs/<user path without leading slash>/<component path starting at input/...>`
-- `PUT /v1/inputs/<user path without leading slash>/<component path starting at input/...>`
-
-Examples:
-
-- `GET /v1/devices/user/hand/left`
-- `PUT /v1/devices/user/vive_tracker_htcx/role/waist`
-- `GET /v1/inputs/user/hand/left/input/trigger/value`
-- `PUT /v1/inputs/user/hand/right/input/a/click`
-
-## C API
-
-The public C API lives in `include/ox_sim.h`.
-
-Main entry points:
-
-- `ox_sim_initialize` / `ox_sim_shutdown`
-- `ox_sim_get_current_profile` / `ox_sim_set_current_profile`
-- `ox_sim_get_device_count` / `ox_sim_get_device_state`
-- `ox_sim_get_device_pose` / `ox_sim_set_device_pose`
-- `ox_sim_get_input_state_boolean` / `ox_sim_set_input_state_boolean`
-- `ox_sim_get_input_state_float` / `ox_sim_set_input_state_float`
-- `ox_sim_get_input_state_vector2f` / `ox_sim_set_input_state_vector2f`
-- `ox_sim_get_session_state`
-- `ox_sim_get_app_fps`
-- `ox_sim_get_frame_preview`
-
-Examples:
-
-- `examples/simulator_api_example.cpp` shows native usage
-- `examples/simulator_control_example.py` shows Python `ctypes` usage
+- GUI reference: https://github.com/ox-runtime/ox/blob/main/docs/gui.md
+- HTTP API reference: https://github.com/ox-runtime/ox/blob/main/docs/rest_api.md
+- C API reference: https://github.com/ox-runtime/ox/blob/main/docs/c_api.md
+- Public header: `include/ox_sim.h`
 
 ## Installation
 

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.27)
 
-project(ox-simulator VERSION 0.4.0 LANGUAGES CXX)
+project(ox-simulator VERSION 0.5.0 LANGUAGES CXX)
 
 if(WIN32 AND MSVC)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
@@ -34,7 +34,7 @@ else()
     FetchContent_Declare(
         ox_driver_api
         GIT_REPOSITORY https://github.com/ox-runtime/ox-runtime.git
-        GIT_TAG v0.1.0
+        GIT_TAG v0.2.0
         GIT_SHALLOW TRUE
         GIT_SPARSE_CHECKOUT include
         SOURCE_SUBDIR include
@@ -54,6 +54,36 @@ if(NOT TARGET spdlog::spdlog)
         set(SPDLOG_BUILD_PIC ON CACHE BOOL "" FORCE)
     endif()
     FetchContent_MakeAvailable(spdlog)
+endif()
+
+if(NOT TARGET glm::glm)
+    set(GLM_BUILD_LIBRARY OFF CACHE BOOL "" FORCE)
+    set(GLM_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(
+        glm
+        GIT_REPOSITORY https://github.com/g-truc/glm.git
+        GIT_TAG 1.0.3
+    )
+    FetchContent_MakeAvailable(glm)
+endif()
+
+if(NOT TARGET whereami)
+    FetchContent_Declare(
+        whereami
+        GIT_REPOSITORY https://github.com/gpakosz/whereami.git
+        GIT_TAG master
+        GIT_SHALLOW true
+    )
+    FetchContent_MakeAvailable(whereami)
+
+    add_library(whereami STATIC ${whereami_SOURCE_DIR}/src/whereami.c)
+    if(NOT WIN32)
+        set_target_properties(whereami PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    endif()
+    target_include_directories(whereami PUBLIC ${whereami_SOURCE_DIR}/src)
+    if(CMAKE_DL_LIBS)
+        target_link_libraries(whereami PUBLIC ${CMAKE_DL_LIBS})
+    endif()
 endif()
 
 set(OUTPUT_FOLDER "ox_simulator")
@@ -94,12 +124,11 @@ set_target_properties(ox-simulator PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY_RELEASE ${CMAKE_BINARY_DIR}/${OUTPUT_FOLDER}
 )
 
-if(NOT WIN32)
-    set_target_properties(ox-simulator PROPERTIES
-        CXX_VISIBILITY_PRESET hidden
-        VISIBILITY_INLINES_HIDDEN ON
-    )
-endif()
+# Hide non-exported C++ symbols by default so only explicit API exports leave the shared library.
+set_target_properties(ox-simulator PROPERTIES
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN ON
+)
 
 # Include directories
 target_include_directories(ox-simulator PUBLIC
@@ -118,7 +147,7 @@ target_compile_definitions(ox-simulator PRIVATE
 
 # Link libraries
 target_link_libraries(ox-simulator PUBLIC ox_driver_api)
-target_link_libraries(ox-simulator PRIVATE spdlog::spdlog ${GUI_LIBRARIES})
+target_link_libraries(ox-simulator PRIVATE spdlog::spdlog glm::glm whereami ${GUI_LIBRARIES})
 
 # Platform-specific settings
 if(WIN32)

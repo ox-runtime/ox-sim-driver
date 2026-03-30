@@ -19,7 +19,7 @@ int main() {
     }
 
     XrPosef left_pose = {{0.0f, 0.0f, 0.0f, 1.0f}, {-0.25f, 1.35f, -0.4f}};
-    ox_sim_set_device_pose("/user/hand/left", &left_pose, 1);
+    ox_sim_set_device_pose("/user/hand/left", &left_pose, XR_TRUE);
     ox_sim_set_input_state_float("/user/hand/left", "/input/trigger/value", 0.75f);
 
     float trigger_value = 0.0f;

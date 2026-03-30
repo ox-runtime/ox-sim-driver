@@ -1,42 +1,36 @@
 #pragma once
+
+#include <whereami.h>
+
+#include <cstdlib>
 #include <filesystem>
 #include <string>
+#include <vector>
 
 #ifdef _WIN32
 #include <windows.h>
-#elif defined(__linux__)
-#include <limits.h>
-#include <unistd.h>
-#elif defined(__APPLE__)
-#include <limits.h>
-#include <mach-o/dyld.h>
 #endif
+
+namespace fs = std::filesystem;
 
 namespace ox_sim {
 namespace utils {
-inline std::filesystem::path GetExecutableDir() {
-#ifdef _WIN32
-    char buffer[MAX_PATH];
-    GetModuleFileNameA(nullptr, buffer, MAX_PATH);
-    return std::filesystem::path(buffer).parent_path();
+inline fs::path GetExecutablePath() {
+    const int len = wai_getExecutablePath(nullptr, 0, nullptr);
+    if (len <= 0) {
+        return {};
+    }
 
-#elif defined(__linux__)
-    char buffer[PATH_MAX];
-    ssize_t len = readlink("/proc/self/exe", buffer, sizeof(buffer) - 1);
-    buffer[len] = '\0';
-    return std::filesystem::path(buffer).parent_path();
-
-#elif defined(__APPLE__)
-    char buffer[PATH_MAX];
-    uint32_t size = sizeof(buffer);
-    _NSGetExecutablePath(buffer, &size);
-    return std::filesystem::path(buffer).parent_path();
-#endif
-
-    return std::filesystem::path();
+    std::vector<char> buffer(static_cast<size_t>(len) + 1, '\0');
+    wai_getExecutablePath(buffer.data(), len, nullptr);
+    buffer[static_cast<size_t>(len)] = '\0';
+    return fs::path(buffer.data());
 }
 
-inline std::filesystem::path GetRuntimeJsonPath() { return GetExecutableDir() / "ox_runtime.json"; }
+inline fs::path GetRuntimeJsonPath() {
+    const auto executable_path = GetExecutablePath();
+    return executable_path.parent_path() / "ox_runtime.json";
+}
 
 static void SetAsOpenXRRuntime(std::string& status_message) {
     auto runtime_json = GetRuntimeJsonPath();
@@ -95,11 +89,11 @@ static void SetAsOpenXRRuntime(std::string& status_message) {
     std::string link_path = openxr_dir + "/active_runtime.json";
 
     try {
-        std::filesystem::create_directories(openxr_dir);
-        std::filesystem::remove(link_path);
-        std::filesystem::create_symlink(runtime_json.string(), link_path);
+        fs::create_directories(openxr_dir);
+        fs::remove(link_path);
+        fs::create_symlink(runtime_json.string(), link_path);
         status_message = "Registered as active OpenXR runtime";
-    } catch (const std::filesystem::filesystem_error& e) {
+    } catch (const fs::filesystem_error& e) {
         status_message = std::string("Failed to set runtime: ") + e.what();
     }
 
@@ -109,27 +103,14 @@ static void SetAsOpenXRRuntime(std::string& status_message) {
     std::string link_path = openxr_dir + "/active_runtime.json";
 
     try {
-        std::filesystem::create_directories(openxr_dir);
-        std::filesystem::remove(link_path);
-        std::filesystem::create_symlink(runtime_json.string(), link_path);
+        fs::create_directories(openxr_dir);
+        fs::remove(link_path);
+        fs::create_symlink(runtime_json.string(), link_path);
         status_message = "Registered as active OpenXR runtime";
-    } catch (const std::filesystem::filesystem_error& e) {
+    } catch (const fs::filesystem_error& e) {
         status_message = std::string("Failed to set runtime: ") + e.what();
     }
 #endif
-}
-
-template <typename T>
-constexpr T pi = T(3.14159265358979323846L);
-
-template <typename T>
-constexpr T DegToRad(T deg) {
-    return deg * pi<T> / T(180);
-}
-
-template <typename T>
-constexpr T RadToDeg(T rad) {
-    return rad * T(180) / pi<T>;
 }
 
 }  // namespace utils

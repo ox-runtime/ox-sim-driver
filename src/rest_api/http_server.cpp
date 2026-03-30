@@ -91,15 +91,8 @@ std::vector<uint8_t> encode_rgba_to_png(const void* rgba_data, uint32_t width, u
     }
 
     const int stride = static_cast<int>(width * 4);
-    std::vector<uint8_t> opaque(static_cast<const uint8_t*>(rgba_data),
-                                static_cast<const uint8_t*>(rgba_data) + width * height * 4);
-    for (uint32_t i = 0; i < width * height; ++i) {
-        opaque[i * 4 + 3] = 255;
-    }
-
-    const uint8_t* last_row = opaque.data() + (height - 1) * stride;
-    stbi_write_png_to_func(png_write_callback, &out, static_cast<int>(width), static_cast<int>(height), 4, last_row,
-                           -stride);
+    stbi_write_png_to_func(png_write_callback, &out, static_cast<int>(width), static_cast<int>(height), 4, rgba_data,
+                           stride);
     return out;
 }
 
@@ -203,6 +196,10 @@ void HttpServer::ServerThread() {
     });
 
     auto eye_frame_handler = [](const crow::request& req, int eye) -> crow::response {
+        if (eye < 0 || eye > 1) {
+            return crow::response(404, "Eye not found");
+        }
+
         OxSimFramePreview preview = {};
         if (ox_sim_get_frame_preview(&preview) != OX_SIM_SUCCESS) {
             return crow::response(503, "Frame preview unavailable");
@@ -251,13 +248,7 @@ void HttpServer::ServerThread() {
         return response;
     };
 
-    CROW_ROUTE(app, "/v1/views/0").methods("GET"_method)([&eye_frame_handler](const crow::request& req) {
-        return eye_frame_handler(req, 0);
-    });
-
-    CROW_ROUTE(app, "/v1/views/1").methods("GET"_method)([&eye_frame_handler](const crow::request& req) {
-        return eye_frame_handler(req, 1);
-    });
+    CROW_ROUTE(app, "/v1/views/<int>").methods("GET"_method)(eye_frame_handler);
 
     CROW_ROUTE(app, "/v1/profile").methods("GET"_method)([]() {
         const DeviceProfile* profile = current_profile();
@@ -325,7 +316,7 @@ void HttpServer::ServerThread() {
     CROW_ROUTE(app, "/v1/devices/<path>").methods("GET"_method)([](const std::string& user_path) {
         const std::string full_user_path = "/" + user_path;
         XrPosef pose = {};
-        uint32_t active = 0;
+        XrBool32 active = XR_FALSE;
         if (ox_sim_get_device_pose(full_user_path.c_str(), &pose, &active) != OX_SIM_SUCCESS) {
             return crow::response(404, "Device not found");
         }
@@ -363,7 +354,7 @@ void HttpServer::ServerThread() {
             pose.orientation.y = json["orientation"]["y"].d();
             pose.orientation.z = json["orientation"]["z"].d();
             pose.orientation.w = json["orientation"]["w"].d();
-            uint32_t active = json.has("active") ? (json["active"].b() ? 1u : 0u) : 1u;
+            XrBool32 active = json.has("active") ? (json["active"].b() ? XR_TRUE : XR_FALSE) : XR_TRUE;
 
             if (ox_sim_set_device_pose(full_user_path.c_str(), &pose, active) != OX_SIM_SUCCESS) {
                 return crow::response(500, "Failed to set device pose");
@@ -441,8 +432,7 @@ void HttpServer::ServerThread() {
                "  GET/PUT  /v1/profile                - Get/switch device profile\n"
                "  GET/PUT  /v1/devices/<user_path>    - Get/set device pose\n"
                "  GET/PUT  /v1/inputs/<binding_path>  - Get/set input component state\n"
-               "  GET      /v1/views/0                - Left eye texture (PNG)\n"
-               "  GET      /v1/views/1                - Right eye texture (PNG)\n";
+               "  GET      /v1/views/<eye>            - Eye texture (PNG), eye=0 or 1\n";
     });
 
     try {

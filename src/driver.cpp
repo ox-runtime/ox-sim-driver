@@ -8,11 +8,10 @@
 
 #include "device_profiles.hpp"
 #include "gui/gui_window.h"
+#include "math.hpp"
 #include "rest_api/http_server.h"
 
 using namespace ox_sim;
-
-static XrVector3f rotate_vector_by_quat(const XrQuaternionf& q, const XrVector3f& v);
 
 extern "C" void sim_submit_frame(XrTime frame_time, uint32_t eye, uint32_t w, uint32_t h, const void* data,
                                  uint32_t size);
@@ -20,6 +19,8 @@ extern "C" void sim_notify_session(XrSessionState state);
 extern "C" void sim_copy_devices(OxDeviceState* out, uint32_t max, uint32_t* out_count);
 
 namespace {
+
+namespace sim_math = ox_sim::math;
 
 GuiWindow g_gui;
 
@@ -93,13 +94,12 @@ static void simulator_update_view(XrTime predicted_time, uint32_t eye_index, XrV
     (void)predicted_time;
 
     XrPosef hmd_pose = {{0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 1.6f, 0.0f}};
-    uint32_t is_active = 0;
+    XrBool32 is_active = XR_FALSE;
     ox_sim_get_device_pose("/user/head", &hmd_pose, &is_active);
 
     const float ipd = 0.063f;
     const float eye_offset = eye_index == 0 ? -ipd / 2.0f : ipd / 2.0f;
-    const XrVector3f eye_local = {eye_offset, 0.0f, 0.0f};
-    const XrVector3f rotated_offset = rotate_vector_by_quat(hmd_pose.orientation, eye_local);
+    const glm::vec3 rotated_offset = sim_math::RotateVector(hmd_pose.orientation, glm::vec3(eye_offset, 0.0f, 0.0f));
 
     out_view->pose = hmd_pose;
     out_view->pose.position.x += rotated_offset.x;
@@ -189,25 +189,4 @@ extern "C" OX_DRIVER_EXPORT int ox_driver_register(OxDriverCallbacks* callbacks)
     callbacks->submit_frame_pixels = simulator_submit_frame_pixels;
 
     return 1;
-}
-
-static XrVector3f rotate_vector_by_quat(const XrQuaternionf& q, const XrVector3f& v) {
-    // t = 2 * cross(q.xyz, v)
-    XrVector3f t;
-    t.x = 2.0f * (q.y * v.z - q.z * v.y);
-    t.y = 2.0f * (q.z * v.x - q.x * v.z);
-    t.z = 2.0f * (q.x * v.y - q.y * v.x);
-
-    // result = v + q.w * t + cross(q.xyz, t)
-    XrVector3f cross_q_t;
-    cross_q_t.x = q.y * t.z - q.z * t.y;
-    cross_q_t.y = q.z * t.x - q.x * t.z;
-    cross_q_t.z = q.x * t.y - q.y * t.x;
-
-    XrVector3f res;
-    res.x = v.x + q.w * t.x + cross_q_t.x;
-    res.y = v.y + q.w * t.y + cross_q_t.y;
-    res.z = v.z + q.w * t.z + cross_q_t.z;
-
-    return res;
 }

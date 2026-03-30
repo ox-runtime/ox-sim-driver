@@ -28,7 +28,7 @@ uint32_t g_device_count = 0;
 DeviceInputState g_inputs[OX_MAX_DEVICES];
 
 std::mutex g_frame_mutex;
-const void* g_frame_pixels[2] = {};
+std::vector<uint8_t> g_frame_pixels[2];
 uint32_t g_frame_sizes[2] = {};
 uint32_t g_frame_w = 0;
 uint32_t g_frame_h = 0;
@@ -114,7 +114,7 @@ void init_devices(const ox_sim::DeviceProfile* profile) {
         const ox_sim::DeviceDef& device_def = profile->devices[index];
         std::snprintf(g_devices[index].user_path, sizeof(g_devices[index].user_path), "%s", device_def.user_path);
         g_devices[index].pose = device_def.default_pose;
-        g_devices[index].is_active = device_def.always_active ? 1u : 0u;
+        g_devices[index].is_active = device_def.always_active ? XR_TRUE : XR_FALSE;
 
         g_inputs[index].values.resize(device_def.components.size());
         for (size_t component_index = 0; component_index < device_def.components.size(); ++component_index) {
@@ -135,8 +135,8 @@ void init_devices(const ox_sim::DeviceProfile* profile) {
 
 void reset_frame_state() {
     std::lock_guard<std::mutex> frame_lock(g_frame_mutex);
-    g_frame_pixels[0] = nullptr;
-    g_frame_pixels[1] = nullptr;
+    g_frame_pixels[0].clear();
+    g_frame_pixels[1].clear();
     g_frame_sizes[0] = 0;
     g_frame_sizes[1] = 0;
     g_frame_w = 0;
@@ -173,6 +173,33 @@ void update_fps() {
     }
 
     g_last_frame_ms = now_ms;
+}
+
+// Convert to top-left-origin RGBA with opaque alpha
+bool normalize_frame_preview_rgba(const void* data, uint32_t width, uint32_t height, uint32_t size,
+                                  std::vector<uint8_t>* out_pixels) {
+    if (!data || !out_pixels || width == 0 || height == 0) {
+        return false;
+    }
+
+    const size_t expected_size = static_cast<size_t>(width) * height * 4;
+    if (size != expected_size) {
+        return false;
+    }
+
+    out_pixels->resize(expected_size);
+    const uint8_t* src = static_cast<const uint8_t*>(data);
+    const size_t row_bytes = static_cast<size_t>(width) * 4;
+    for (uint32_t y = 0; y < height; ++y) {
+        const size_t src_offset = static_cast<size_t>(height - 1 - y) * row_bytes;
+        const size_t dst_offset = static_cast<size_t>(y) * row_bytes;
+        std::memcpy(out_pixels->data() + dst_offset, src + src_offset, row_bytes);
+        for (uint32_t x = 0; x < width; ++x) {
+            (*out_pixels)[dst_offset + static_cast<size_t>(x) * 4 + 3] = 255;
+        }
+    }
+
+    return true;
 }
 
 void sync_float_to_vec2(const char* user_path, const char* component_path) {
@@ -370,7 +397,7 @@ extern "C" OX_DRIVER_EXPORT OxSimResult ox_sim_get_device_state(uint32_t device_
 }
 
 extern "C" OX_DRIVER_EXPORT OxSimResult ox_sim_get_device_pose(const char* user_path, XrPosef* out_pose,
-                                                               uint32_t* out_is_active) {
+                                                               XrBool32* out_is_active) {
     if (!user_path || !out_pose || !out_is_active) {
         return OX_SIM_ERROR_INVALID_ARGUMENT;
     }
@@ -391,7 +418,7 @@ extern "C" OX_DRIVER_EXPORT OxSimResult ox_sim_get_device_pose(const char* user_
 }
 
 extern "C" OX_DRIVER_EXPORT OxSimResult ox_sim_set_device_pose(const char* user_path, const XrPosef* pose,
-                                                               uint32_t is_active) {
+                                                               XrBool32 is_active) {
     if (!user_path || !pose) {
         return OX_SIM_ERROR_INVALID_ARGUMENT;
     }
@@ -408,7 +435,7 @@ extern "C" OX_DRIVER_EXPORT OxSimResult ox_sim_set_device_pose(const char* user_
     }
 
     g_devices[device_index].pose = *pose;
-    g_devices[device_index].is_active = device_def->always_active ? 1u : (is_active ? 1u : 0u);
+    g_devices[device_index].is_active = device_def->always_active ? XR_TRUE : (is_active ? XR_TRUE : XR_FALSE);
     return OX_SIM_SUCCESS;
 }
 
@@ -633,8 +660,8 @@ extern "C" OX_DRIVER_EXPORT OxSimResult ox_sim_get_frame_preview(OxSimFramePrevi
     }
 
     std::lock_guard<std::mutex> lock(g_frame_mutex);
-    out_preview->pixel_data[0] = g_frame_pixels[0];
-    out_preview->pixel_data[1] = g_frame_pixels[1];
+    out_preview->pixel_data[0] = g_frame_pixels[0].empty() ? nullptr : g_frame_pixels[0].data();
+    out_preview->pixel_data[1] = g_frame_pixels[1].empty() ? nullptr : g_frame_pixels[1].data();
     out_preview->data_size[0] = g_frame_sizes[0];
     out_preview->data_size[1] = g_frame_sizes[1];
     out_preview->width = g_frame_w;
@@ -652,10 +679,13 @@ extern "C" void sim_submit_frame(XrTime frame_time, uint32_t eye, uint32_t w, ui
     }
 
     std::lock_guard<std::mutex> lock(g_frame_mutex);
+    if (!normalize_frame_preview_rgba(data, w, h, size, &g_frame_pixels[eye])) {
+        return;
+    }
+
     g_frame_w = w;
     g_frame_h = h;
-    g_frame_pixels[eye] = data;
-    g_frame_sizes[eye] = size;
+    g_frame_sizes[eye] = static_cast<uint32_t>(g_frame_pixels[eye].size());
     if (eye == 0) {
         update_fps();
     }

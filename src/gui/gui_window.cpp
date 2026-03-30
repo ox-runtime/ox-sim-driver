@@ -11,7 +11,6 @@
 #include <algorithm>
 #include <array>
 #include <cfloat>
-#include <cmath>
 #include <cstring>
 #include <string>
 #include <unordered_map>
@@ -19,16 +18,16 @@
 
 #include "device_profiles.hpp"
 #include "imgui_impl_opengl3.h"
+#include "math.hpp"
 #include "rest_api/http_server.h"
 #include "utils.hpp"
 #include "vog.h"
 
-using ox_sim::utils::DegToRad;
-using ox_sim::utils::RadToDeg;
-
 namespace ox_sim {
 
 namespace {
+
+namespace sim_math = ox_sim::math;
 
 const DeviceProfile* current_profile() {
     char profile_name[64] = {};
@@ -47,6 +46,42 @@ bool is_session_active() {
 
     return state == XR_SESSION_STATE_SYNCHRONIZED || state == XR_SESSION_STATE_VISIBLE ||
            state == XR_SESSION_STATE_FOCUSED;
+}
+
+clip::image_spec make_clip_rgba_image_spec(uint32_t width, uint32_t height) {
+    clip::image_spec spec;
+    spec.width = width;
+    spec.height = height;
+    spec.bits_per_pixel = 32;
+    spec.bytes_per_row = width * 4;
+    spec.red_mask = 0x000000ff;
+    spec.green_mask = 0x0000ff00;
+    spec.blue_mask = 0x00ff0000;
+    spec.alpha_mask = 0xff000000;
+    spec.red_shift = 0;
+    spec.green_shift = 8;
+    spec.blue_shift = 16;
+    spec.alpha_shift = 24;
+    return spec;
+}
+
+std::vector<uint8_t> ComposeSideBySidePreview(const std::vector<uint8_t>& left, const std::vector<uint8_t>& right,
+                                              uint32_t width, uint32_t height) {
+    std::vector<uint8_t> composite(static_cast<size_t>(width) * 2 * height * 4, 0);
+    const size_t row_bytes = static_cast<size_t>(width) * 4;
+    const size_t composite_row_bytes = row_bytes * 2;
+
+    for (uint32_t y = 0; y < height; ++y) {
+        uint8_t* dst_row = composite.data() + static_cast<size_t>(y) * composite_row_bytes;
+        if (!left.empty()) {
+            std::memcpy(dst_row, left.data() + static_cast<size_t>(y) * row_bytes, row_bytes);
+        }
+        if (!right.empty()) {
+            std::memcpy(dst_row + row_bytes, right.data() + static_cast<size_t>(y) * row_bytes, row_bytes);
+        }
+    }
+
+    return composite;
 }
 
 }  // namespace
@@ -306,7 +341,7 @@ void GuiWindow::RenderFramePreview() {
 
     ImGui::PushStyleColor(ImGuiCol_ChildBg, tc.panel1.value());
     ImGui::BeginChild("PreviewContent", ImVec2(0, content_h), false,
-                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoNavInputs);
     {
         const ImVec2 avail = ImGui::GetContentRegionAvail();
         std::vector<PreviewImageRect> image_rects;
@@ -331,6 +366,18 @@ void GuiWindow::RenderFramePreview() {
             }
         };
 
+        auto draw_preview_texture = [&](int eye, const ImVec2& cursor_pos, const ImVec2& image_size) {
+            ImGui::SetCursorPos(cursor_pos);
+            if (!preview_textures_[eye]) {
+                ImGui::Dummy(image_size);
+                return;
+            }
+
+            ImGui::Image((ImTextureID)(intptr_t)preview_textures_[eye], image_size, ImVec2(0, 0), ImVec2(1, 1),
+                         ImVec4(1, 1, 1, 1), tc.border.value());
+            capture_image_rect(eye);
+        };
+
         if (!has_image) {
             const char* msg = "No image received";
             ImVec2 ts = ImGui::CalcTextSize(msg);
@@ -347,22 +394,8 @@ void GuiWindow::RenderFramePreview() {
             const float y_off = (avail.y - h_each) * 0.5f;
             const float left_x = std::max(0.0f, avail.x * 0.5f - w_each);
             const float right_x = left_x + w_each;
-            ImGui::SetCursorPos(ImVec2(left_x, y_off));
-            if (preview_textures_[0]) {
-                ImGui::Image((ImTextureID)(intptr_t)preview_textures_[0], ImVec2(w_each, h_each), ImVec2(0, 1),
-                             ImVec2(1, 0), ImVec4(1, 1, 1, 1), tc.border.value());
-                capture_image_rect(0);
-            } else {
-                ImGui::Dummy(ImVec2(w_each, h_each));
-            }
-            ImGui::SetCursorPos(ImVec2(right_x, y_off));
-            if (preview_textures_[1]) {
-                ImGui::Image((ImTextureID)(intptr_t)preview_textures_[1], ImVec2(w_each, h_each), ImVec2(0, 1),
-                             ImVec2(1, 0), ImVec4(1, 1, 1, 1), tc.border.value());
-                capture_image_rect(1);
-            } else {
-                ImGui::Dummy(ImVec2(w_each, h_each));
-            }
+            draw_preview_texture(0, ImVec2(left_x, y_off), ImVec2(w_each, h_each));
+            draw_preview_texture(1, ImVec2(right_x, y_off), ImVec2(w_each, h_each));
         } else {
             const int eye = (preview_eye_selection_ == 1) ? 1 : 0;
             const char* no_msg = (eye == 1) ? "No image received (right eye)" : "No image received (left eye)";
@@ -376,10 +409,7 @@ void GuiWindow::RenderFramePreview() {
                 }
                 const float x_off = (avail.x - img_w) * 0.5f;
                 const float y_off = (avail.y - img_h) * 0.5f;
-                ImGui::SetCursorPos(ImVec2(x_off, y_off));
-                ImGui::Image((ImTextureID)(intptr_t)preview_textures_[eye], ImVec2(img_w, img_h), ImVec2(0, 1),
-                             ImVec2(1, 0), ImVec4(1, 1, 1, 1), tc.border.value());
-                capture_image_rect(eye);
+                draw_preview_texture(eye, ImVec2(x_off, y_off), ImVec2(img_w, img_h));
             } else {
                 ImVec2 ts = ImGui::CalcTextSize(no_msg);
                 ImGui::SetCursorPos(ImVec2((avail.x - ts.x) * 0.5f, (avail.y - ts.y) * 0.5f));
@@ -423,7 +453,7 @@ void GuiWindow::UpdateFrameTextures() {
             spdlog::info("[GUI] Created OpenGL texture {} for eye {}", preview_textures_[eye], eye);
         }
         glBindTexture(GL_TEXTURE_2D, preview_textures_[eye]);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
     }
     glBindTexture(GL_TEXTURE_2D, 0);
     preview_width_ = w;
@@ -454,7 +484,7 @@ void GuiWindow::RenderDevicePanel(const DeviceDef& device, int device_index, flo
     ImGui::TextColored(tc.text_muted.value(), "(%s)", device.user_path);
     ImGui::Separator();
 
-    uint32_t is_active = false;
+    XrBool32 is_active = XR_FALSE;
     XrPosef pose = {{0, 0, 0, 1}, {0, 0, 0}};
     ox_sim_get_device_pose(device.user_path, &pose, &is_active);
 
@@ -464,7 +494,7 @@ void GuiWindow::RenderDevicePanel(const DeviceDef& device, int device_index, flo
         ImGui::Text("Active");
         ImGui::SameLine();
         if (vog::widgets::ToggleButton("", &active_toggle)) {
-            ox_sim_set_device_pose(device.user_path, &pose, active_toggle ? 1u : 0u);
+            ox_sim_set_device_pose(device.user_path, &pose, active_toggle ? XR_TRUE : XR_FALSE);
         }
         ShowItemTooltip("Enable/disable device tracking");
     } else {
@@ -610,13 +640,13 @@ void GuiWindow::RenderComponentControl(const DeviceDef& device, const ComponentD
 }
 
 // Rotation control with gimbal-lock-free incremental updates via cached Euler angles per device.
-void GuiWindow::RenderRotationControl(const DeviceDef& device, int device_index, XrPosef& pose, bool is_active) {
+void GuiWindow::RenderRotationControl(const DeviceDef& device, int device_index, XrPosef& pose, XrBool32 is_active) {
     const std::string key = std::string(device.user_path) + "_" + std::to_string(device_index);
     auto it = euler_cache_.find(key);
     if (it == euler_cache_.end()) {
         EulerCache ec;
         ec.quat = pose.orientation;
-        QuatToEuler(pose.orientation, ec.euler);
+        ec.euler = sim_math::EulerDegrees(pose.orientation);
         euler_cache_[key] = ec;
     }
     auto& ec = euler_cache_[key];
@@ -624,7 +654,7 @@ void GuiWindow::RenderRotationControl(const DeviceDef& device, int device_index,
     // If the quaternion changed externally (Reset Pose / API), re-derive Euler.
     if (ec.quat.x != pose.orientation.x || ec.quat.y != pose.orientation.y || ec.quat.z != pose.orientation.z ||
         ec.quat.w != pose.orientation.w) {
-        QuatToEuler(pose.orientation, ec.euler);
+        ec.euler = sim_math::EulerDegrees(pose.orientation);
         ec.quat = pose.orientation;
     }
 
@@ -633,55 +663,23 @@ void GuiWindow::RenderRotationControl(const DeviceDef& device, int device_index,
     const float pad = 8.0f;
     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - pad);
     if (ImGui::DragFloat3("##Rotation", rot, 1.0f, -FLT_MAX, FLT_MAX, "%.2f°")) {
-        // Apply each axis delta as an incremental world-space rotation so
-        // the three axes stay independent (no gimbal-lock singularity).
-        float dp = DegToRad(rot[0] - ec.euler.x);  // pitch delta (rot around X)
-        float dy = DegToRad(rot[1] - ec.euler.y);  // yaw delta   (rot around Y)
-        float dr = DegToRad(rot[2] - ec.euler.z);  // roll delta  (rot around Z)
+        const float dp = glm::radians(rot[0] - ec.euler.x);
+        const float dy = glm::radians(rot[1] - ec.euler.y);
+        const float dr = glm::radians(rot[2] - ec.euler.z);
 
-        XrQuaternionf q = pose.orientation;
-        ApplyRotation(q, XrVector3f{1, 0, 0}, dp);
-        ApplyRotation(q, XrVector3f{0, 1, 0}, dy);
-        ApplyRotation(q, XrVector3f{0, 0, 1}, dr);
-        pose.orientation = q;
+        glm::quat orientation = sim_math::ToGlm(pose.orientation);
+        orientation = sim_math::RotateWorld(orientation, sim_math::kLocalRight, dp);
+        orientation = sim_math::RotateWorld(orientation, sim_math::kLocalUp, dy);
+        orientation = sim_math::RotateWorld(orientation, sim_math::kWorldZ, dr);
+        pose.orientation = sim_math::ToXr(orientation);
 
         ec.euler = {rot[0], rot[1], rot[2]};
-        ec.quat = q;
+        ec.quat = pose.orientation;
         ox_sim_set_device_pose(device.user_path, &pose, is_active);
     }
 }
 
-// Convert quaternion to Euler angles (in degrees) using the OpenXR right-handed Y-up convention.
-// euler.x = pitch (rotation around X), euler.y = yaw (rotation around Y), euler.z = roll (rotation around Z).
-void GuiWindow::QuatToEuler(const XrQuaternionf& q, XrVector3f& euler) {
-    // OpenXR right-handed Y-up: pitch=rotate-X, yaw=rotate-Y, roll=rotate-Z
-    float sinp_cosy = 2.0f * (q.w * q.x + q.y * q.z);
-    float cosp_cosy = 1.0f - 2.0f * (q.x * q.x + q.y * q.y);
-    float siny = 2.0f * (q.w * q.y - q.z * q.x);
-    float sinr_cosy = 2.0f * (q.w * q.z + q.x * q.y);
-    float cosr_cosy = 1.0f - 2.0f * (q.y * q.y + q.z * q.z);
-    euler.x = RadToDeg(std::atan2(sinp_cosy, cosp_cosy));  // pitch (rot around X)
-    euler.y =
-        (std::abs(siny) >= 1.0f ? std::copysign(90.0f, siny) : RadToDeg(std::asin(siny)));  // yaw   (rot around Y)
-    euler.z = RadToDeg(std::atan2(sinr_cosy, cosr_cosy));                                   // roll  (rot around Z)
-}
-
-// Apply an incremental rotation (angle in radians) around the given axis to the input quaternion.
-void GuiWindow::ApplyRotation(XrQuaternionf& q, const XrVector3f& a, float angle) {
-    if (angle == 0.0f) return;
-    float s = std::sin(angle * 0.5f), c = std::cos(angle * 0.5f);
-    float nx = c * q.x + s * (a.x * q.w + a.y * q.z - a.z * q.y);
-    float ny = c * q.y + s * (a.y * q.w + a.z * q.x - a.x * q.z);
-    float nz = c * q.z + s * (a.z * q.w + a.x * q.y - a.y * q.x);
-    float nw = c * q.w - s * (a.x * q.x + a.y * q.y + a.z * q.z);
-    float len = std::sqrt(nx * nx + ny * ny + nz * nz + nw * nw);
-    q.x = nx / len;
-    q.y = ny / len;
-    q.z = nz / len;
-    q.w = nw / len;
-}
-
-bool GuiWindow::GetHeadPose(XrPosef& pose, uint32_t& is_active) const {
+bool GuiWindow::GetHeadPose(XrPosef& pose, XrBool32& is_active) const {
     return ox_sim_get_device_pose("/user/head", &pose, &is_active) == OX_SIM_SUCCESS;
 }
 
@@ -724,45 +722,93 @@ void GuiWindow::HandlePreviewNavigation(bool allow_navigation, bool block_naviga
     }
 
     XrPosef head_pose = {};
-    uint32_t is_active = 0;
+    XrBool32 is_active = XR_FALSE;
     if (!GetHeadPose(head_pose, is_active)) {
         return;
     }
 
-    XrVector3f euler = {};
-    QuatToEuler(head_pose.orientation, euler);
-    const float yaw = DegToRad(euler.y);
-    XrVector3f forward = {std::sin(yaw), 0.0f, -std::cos(yaw)};
-    XrVector3f right = {std::cos(yaw), 0.0f, std::sin(yaw)};
-    XrVector3f move = {0.0f, 0.0f, 0.0f};
-
-    if (ImGui::IsKeyDown(ImGuiKey_W) || ImGui::IsKeyDown(ImGuiKey_UpArrow)) {
-        move.x += forward.x;
-        move.z += forward.z;
-    }
-    if (ImGui::IsKeyDown(ImGuiKey_S) || ImGui::IsKeyDown(ImGuiKey_DownArrow)) {
-        move.x -= forward.x;
-        move.z -= forward.z;
-    }
-    if (ImGui::IsKeyDown(ImGuiKey_D) || ImGui::IsKeyDown(ImGuiKey_RightArrow)) {
-        move.x += right.x;
-        move.z += right.z;
-    }
-    if (ImGui::IsKeyDown(ImGuiKey_A) || ImGui::IsKeyDown(ImGuiKey_LeftArrow)) {
-        move.x -= right.x;
-        move.z -= right.z;
-    }
-
-    const float move_len = std::sqrt(move.x * move.x + move.z * move.z);
-    if (move_len <= 0.0f || io.DeltaTime <= 0.0f) {
-        return;
-    }
-
     const float speed = (ImGui::IsKeyDown(ImGuiKey_LeftShift) || ImGui::IsKeyDown(ImGuiKey_RightShift)) ? 4.5f : 1.5f;
-    const float step = (speed * io.DeltaTime) / move_len;
-    head_pose.position.x += move.x * step;
-    head_pose.position.z += move.z * step;
-    ox_sim_set_device_pose("/user/head", &head_pose, is_active);
+    bool pose_dirty = false;
+
+    // --- Translation (WASD + R/F) ---
+    // Use an FPS-style basis: forward/right come from yaw only, and R/F stay world vertical.
+    {
+        const glm::quat orientation = sim_math::ToGlm(head_pose.orientation);
+        const glm::vec3 horizontal_forward = sim_math::HorizontalForwardAxis(orientation);
+        const glm::vec3 horizontal_right = sim_math::HorizontalRightAxis(orientation);
+        glm::vec3 move(0.0f);
+        if (ImGui::IsKeyDown(ImGuiKey_W)) {
+            move += horizontal_forward;
+        }
+        if (ImGui::IsKeyDown(ImGuiKey_S)) {
+            move -= horizontal_forward;
+        }
+        if (ImGui::IsKeyDown(ImGuiKey_D)) {
+            move += horizontal_right;
+        }
+        if (ImGui::IsKeyDown(ImGuiKey_A)) {
+            move -= horizontal_right;
+        }
+        if (ImGui::IsKeyDown(ImGuiKey_R)) {
+            move += sim_math::kWorldUp;
+        }
+        if (ImGui::IsKeyDown(ImGuiKey_F)) {
+            move -= sim_math::kWorldUp;
+        }
+
+        if (io.DeltaTime > 0.0f) {
+            const float move_length = glm::length(move);
+            if (move_length > 0.0f) {
+                const glm::vec3 translated =
+                    sim_math::ToGlm(head_pose.position) + (move / move_length) * speed * io.DeltaTime;
+                head_pose.position = sim_math::ToXr(translated);
+                pose_dirty = true;
+            }
+        }
+    }
+
+    // --- Rotation (arrow keys + Q/E) ---
+    // Arrow keys match mouse-look: yaw around world up and pitch around the yaw-aligned right axis.
+    if (io.DeltaTime > 0.0f) {
+        const float rot_rad = glm::radians(90.0f * io.DeltaTime);
+        glm::quat orientation = sim_math::ToGlm(head_pose.orientation);
+
+        if (ImGui::IsKeyDown(ImGuiKey_LeftArrow)) {
+            orientation = sim_math::RotateWorld(orientation, sim_math::kWorldUp, rot_rad);
+            pose_dirty = true;
+        }
+        if (ImGui::IsKeyDown(ImGuiKey_RightArrow)) {
+            orientation = sim_math::RotateWorld(orientation, sim_math::kWorldUp, -rot_rad);
+            pose_dirty = true;
+        }
+
+        if (ImGui::IsKeyDown(ImGuiKey_UpArrow) || ImGui::IsKeyDown(ImGuiKey_DownArrow)) {
+            const float pitch_delta = ImGui::IsKeyDown(ImGuiKey_UpArrow) ? rot_rad : -rot_rad;
+            const glm::vec3 pitch_axis = sim_math::HorizontalRightAxis(orientation);
+            const glm::quat candidate = sim_math::RotateWorld(orientation, pitch_axis, pitch_delta);
+            if (std::abs(sim_math::ForwardElevationDegrees(candidate)) <= sim_math::kPitchLimitDeg) {
+                orientation = candidate;
+                pose_dirty = true;
+            }
+        }
+
+        if (ImGui::IsKeyDown(ImGuiKey_Q) || ImGui::IsKeyDown(ImGuiKey_E)) {
+            if (ImGui::IsKeyDown(ImGuiKey_Q)) {
+                orientation = sim_math::RotateWorld(orientation, sim_math::Forward(orientation), -rot_rad);
+                pose_dirty = true;
+            }
+            if (ImGui::IsKeyDown(ImGuiKey_E)) {
+                orientation = sim_math::RotateWorld(orientation, sim_math::Forward(orientation), rot_rad);
+                pose_dirty = true;
+            }
+        }
+
+        head_pose.orientation = sim_math::ToXr(orientation);
+    }
+
+    if (pose_dirty) {
+        ox_sim_set_device_pose("/user/head", &head_pose, is_active);
+    }
 }
 
 bool GuiWindow::CopyPreviewPixelsToClipboard(const std::vector<uint8_t>& pixels, uint32_t width, uint32_t height) {
@@ -771,21 +817,7 @@ bool GuiWindow::CopyPreviewPixelsToClipboard(const std::vector<uint8_t>& pixels,
         return false;
     }
 
-    clip::image_spec spec;
-    spec.width = width;
-    spec.height = height;
-    spec.bits_per_pixel = 32;
-    spec.bytes_per_row = width * 4;
-    spec.red_mask = 0x000000ff;
-    spec.green_mask = 0x0000ff00;
-    spec.blue_mask = 0x00ff0000;
-    spec.alpha_mask = 0xff000000;
-    spec.red_shift = 0;
-    spec.green_shift = 8;
-    spec.blue_shift = 16;
-    spec.alpha_shift = 24;
-
-    clip::image image(pixels.data(), spec);
+    clip::image image(pixels.data(), make_clip_rgba_image_spec(width, height));
     if (!clip::set_image(image)) {
         status_message_ = "Preview copy failed: could not write image to clipboard";
         return false;
@@ -808,21 +840,8 @@ bool GuiWindow::CopyCurrentPreviewToClipboard() {
             return false;
         }
 
-        std::vector<uint8_t> composite(static_cast<size_t>(preview_width_) * 2 * preview_height_ * 4, 0);
-        for (uint32_t y = 0; y < preview_height_; ++y) {
-            for (uint32_t x = 0; x < preview_width_; ++x) {
-                const size_t src_index = (static_cast<size_t>(y) * preview_width_ + x) * 4;
-                const size_t left_dst = (static_cast<size_t>(y) * (preview_width_ * 2) + x) * 4;
-                const size_t right_dst = left_dst + static_cast<size_t>(preview_width_) * 4;
-
-                if (has_left) {
-                    std::memcpy(&composite[left_dst], &preview_pixels_[0][src_index], 4);
-                }
-                if (has_right) {
-                    std::memcpy(&composite[right_dst], &preview_pixels_[1][src_index], 4);
-                }
-            }
-        }
+        std::vector<uint8_t> composite =
+            ComposeSideBySidePreview(preview_pixels_[0], preview_pixels_[1], preview_width_, preview_height_);
 
         if (CopyPreviewPixelsToClipboard(composite, preview_width_ * 2, preview_height_)) {
             status_message_ = "Copied eye texture preview to clipboard";
@@ -858,10 +877,6 @@ void GuiWindow::HandlePreviewInteraction(const ImVec2& preview_min, const ImVec2
 
     const bool hovering_image = UpdatePreviewHoverText(image_rects);
 
-    if (preview_hovered && ImGui::IsMouseReleased(ImGuiMouseButton_Right)) {
-        ImGui::OpenPopup("PreviewContextMenu");
-    }
-
     bool copy_button_hovered = false;
     if (preview_hovered && has_image && !image_rects.empty()) {
         const float button_size = ImGui::GetFrameHeight();
@@ -871,13 +886,6 @@ void GuiWindow::HandlePreviewInteraction(const ImVec2& preview_min, const ImVec2
         }
         copy_button_hovered = ImGui::IsItemHovered();
         vog::widgets::ShowItemTooltip("Copy the current eye texture preview to the clipboard");
-    }
-
-    if (ImGui::BeginPopup("PreviewContextMenu")) {
-        if (ImGui::MenuItem("Copy to Clipboard", nullptr, false, has_image)) {
-            CopyCurrentPreviewToClipboard();
-        }
-        ImGui::EndPopup();
     }
 
     if (hovering_image && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !copy_button_hovered) {
@@ -890,16 +898,28 @@ void GuiWindow::HandlePreviewInteraction(const ImVec2& preview_min, const ImVec2
     if (preview_drag_active_ && !copy_button_hovered) {
         if (std::abs(io.MouseDelta.x) > 0.0f || std::abs(io.MouseDelta.y) > 0.0f) {
             XrPosef head_pose = {};
-            uint32_t is_active = 0;
+            XrBool32 is_active = XR_FALSE;
             if (GetHeadPose(head_pose, is_active)) {
-                ApplyRotation(head_pose.orientation, XrVector3f{0.0f, 1.0f, 0.0f}, DegToRad(-io.MouseDelta.x * 0.25f));
-                ApplyRotation(head_pose.orientation, XrVector3f{1.0f, 0.0f, 0.0f}, DegToRad(-io.MouseDelta.y * 0.25f));
+                glm::quat orientation = sim_math::ToGlm(head_pose.orientation);
+                orientation =
+                    sim_math::RotateWorld(orientation, sim_math::kWorldUp, glm::radians(-io.MouseDelta.x * 0.25f));
+
+                const float pitch_delta = glm::radians(-io.MouseDelta.y * 0.25f);
+                if (pitch_delta != 0.0f) {
+                    const glm::vec3 pitch_axis = sim_math::HorizontalRightAxis(orientation);
+                    const glm::quat candidate = sim_math::RotateWorld(orientation, pitch_axis, pitch_delta);
+                    if (std::abs(sim_math::ForwardElevationDegrees(candidate)) <= sim_math::kPitchLimitDeg) {
+                        orientation = candidate;
+                    }
+                }
+
+                head_pose.orientation = sim_math::ToXr(orientation);
                 ox_sim_set_device_pose("/user/head", &head_pose, is_active);
             }
         }
     }
 
-    HandlePreviewNavigation(preview_has_focus_, copy_button_hovered || ImGui::IsPopupOpen("PreviewContextMenu"));
+    HandlePreviewNavigation(preview_has_focus_, copy_button_hovered);
 }
 
 }  // namespace ox_sim

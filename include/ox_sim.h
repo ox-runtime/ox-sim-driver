@@ -32,8 +32,8 @@ OX_DRIVER_EXPORT OxSimResult ox_sim_get_current_profile(char* out_name, uint32_t
 OX_DRIVER_EXPORT OxSimResult ox_sim_set_current_profile(const char* profile_name);
 OX_DRIVER_EXPORT OxSimResult ox_sim_get_device_count(uint32_t* out_count);
 OX_DRIVER_EXPORT OxSimResult ox_sim_get_device_state(uint32_t device_index, OxDeviceState* out_state);
-OX_DRIVER_EXPORT OxSimResult ox_sim_get_device_pose(const char* user_path, XrPosef* out_pose, uint32_t* out_is_active);
-OX_DRIVER_EXPORT OxSimResult ox_sim_set_device_pose(const char* user_path, const XrPosef* pose, uint32_t is_active);
+OX_DRIVER_EXPORT OxSimResult ox_sim_get_device_pose(const char* user_path, XrPosef* out_pose, XrBool32* out_is_active);
+OX_DRIVER_EXPORT OxSimResult ox_sim_set_device_pose(const char* user_path, const XrPosef* pose, XrBool32 is_active);
 OX_DRIVER_EXPORT OxSimResult ox_sim_get_input_state_boolean(const char* user_path, const char* component_path,
                                                             uint32_t* out_value);
 OX_DRIVER_EXPORT OxSimResult ox_sim_set_input_state_boolean(const char* user_path, const char* component_path,
