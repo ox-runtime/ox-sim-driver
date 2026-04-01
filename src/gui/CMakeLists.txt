@@ -7,10 +7,6 @@ FetchContent_Declare(vog
 )
 FetchContent_MakeAvailable(vog)
 
-if(APPLE)
-    enable_language(OBJCXX)
-endif()
-
 if(NOT TARGET clip)
     set(CLIP_ENABLE_IMAGE ON CACHE BOOL "" FORCE)
     set(CLIP_EXAMPLES OFF CACHE BOOL "" FORCE)
