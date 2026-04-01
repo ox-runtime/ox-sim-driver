@@ -29,6 +29,15 @@ namespace {
 
 namespace sim_math = ox_sim::math;
 
+std::string WindowTitle() {
+    std::string title = "ox simulator";
+#if defined(OX_VERSION_MAJOR) && defined(OX_VERSION_MINOR) && defined(OX_VERSION_PATCH)
+    title += " v" + std::to_string(OX_VERSION_MAJOR) + "." + std::to_string(OX_VERSION_MINOR) + "." +
+             std::to_string(OX_VERSION_PATCH);
+#endif
+    return title;
+}
+
 const DeviceProfile* current_profile() {
     char profile_name[64] = {};
     if (ox_sim_get_current_profile(profile_name, sizeof(profile_name)) != OX_SIM_SUCCESS) {
@@ -100,7 +109,7 @@ bool GuiWindow::Start() {
     }
 
     spdlog::info("Initializing GUI window...");
-    vog::WindowConfig cfg{"ox simulator", 1280, 720};
+    vog::WindowConfig cfg{WindowTitle(), 1280, 720};
 
     // No window padding
     vog::Theme theme;
