@@ -98,8 +98,7 @@ static void SetAsOpenXRRuntime(std::string& status_message) {
     }
 
 #elif defined(__APPLE__)
-    const char* home = getenv("HOME");
-    std::string openxr_dir = std::string(home) + "/Library/Application Support/OpenXR/1";
+    std::string openxr_dir = "/usr/local/share/openxr/1";
     std::string link_path = openxr_dir + "/active_runtime.json";
 
     try {
