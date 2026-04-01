@@ -3,7 +3,7 @@ include(FetchContent)
 # Bring in the vog windowing library (fetches GLFW + ImGui internally)
 FetchContent_Declare(vog
     GIT_REPOSITORY https://github.com/ox-runtime/vog.git
-    GIT_TAG v1.1.8
+    GIT_TAG v1.1.11
 )
 FetchContent_MakeAvailable(vog)
 
