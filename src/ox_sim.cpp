@@ -175,7 +175,7 @@ void update_fps() {
     g_last_frame_ms = now_ms;
 }
 
-// Convert to top-left-origin RGBA with opaque alpha
+// Store a normalized owned RGBA copy for preview consumers.
 bool normalize_frame_preview_rgba(const void* data, uint32_t width, uint32_t height, uint32_t size,
                                   std::vector<uint8_t>* out_pixels) {
     if (!data || !out_pixels || width == 0 || height == 0) {
@@ -189,14 +189,9 @@ bool normalize_frame_preview_rgba(const void* data, uint32_t width, uint32_t hei
 
     out_pixels->resize(expected_size);
     const uint8_t* src = static_cast<const uint8_t*>(data);
-    const size_t row_bytes = static_cast<size_t>(width) * 4;
-    for (uint32_t y = 0; y < height; ++y) {
-        const size_t src_offset = static_cast<size_t>(height - 1 - y) * row_bytes;
-        const size_t dst_offset = static_cast<size_t>(y) * row_bytes;
-        std::memcpy(out_pixels->data() + dst_offset, src + src_offset, row_bytes);
-        for (uint32_t x = 0; x < width; ++x) {
-            (*out_pixels)[dst_offset + static_cast<size_t>(x) * 4 + 3] = 255;
-        }
+    std::memcpy(out_pixels->data(), src, expected_size);
+    for (size_t offset = 3; offset < expected_size; offset += 4) {
+        (*out_pixels)[offset] = 255;
     }
 
     return true;
