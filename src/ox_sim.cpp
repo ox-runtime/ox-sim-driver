@@ -654,9 +654,17 @@ extern "C" OX_DRIVER_EXPORT OxSimResult ox_sim_get_frame_preview(OxSimFramePrevi
         return OX_SIM_ERROR_NOT_INITIALIZED;
     }
 
+    // Thread-local snapshots: the deep copy happens under g_frame_mutex so the
+    // returned pointers are owned by the calling thread and remain valid after
+    // the lock is released, even while sim_submit_frame overwrites g_frame_pixels.
+    thread_local std::vector<uint8_t> tl_pixels[2];
+
     std::lock_guard<std::mutex> lock(g_frame_mutex);
-    out_preview->pixel_data[0] = g_frame_pixels[0].empty() ? nullptr : g_frame_pixels[0].data();
-    out_preview->pixel_data[1] = g_frame_pixels[1].empty() ? nullptr : g_frame_pixels[1].data();
+    for (int i = 0; i < 2; ++i) {
+        tl_pixels[i] = g_frame_pixels[i];
+    }
+    out_preview->pixel_data[0] = tl_pixels[0].empty() ? nullptr : tl_pixels[0].data();
+    out_preview->pixel_data[1] = tl_pixels[1].empty() ? nullptr : tl_pixels[1].data();
     out_preview->data_size[0] = g_frame_sizes[0];
     out_preview->data_size[1] = g_frame_sizes[1];
     out_preview->width = g_frame_w;

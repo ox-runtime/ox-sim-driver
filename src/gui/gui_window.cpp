@@ -462,7 +462,7 @@ void GuiWindow::UpdateFrameTextures() {
             spdlog::info("[GUI] Created OpenGL texture {} for eye {}", preview_textures_[eye], eye);
         }
         glBindTexture(GL_TEXTURE_2D, preview_textures_[eye]);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, preview_pixels_[eye].data());
     }
     glBindTexture(GL_TEXTURE_2D, 0);
     preview_width_ = w;
