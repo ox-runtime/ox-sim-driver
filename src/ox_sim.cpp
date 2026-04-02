@@ -114,7 +114,7 @@ void init_devices(const ox_sim::DeviceProfile* profile) {
         const ox_sim::DeviceDef& device_def = profile->devices[index];
         std::snprintf(g_devices[index].user_path, sizeof(g_devices[index].user_path), "%s", device_def.user_path);
         g_devices[index].pose = device_def.default_pose;
-        g_devices[index].is_active = device_def.always_active ? XR_TRUE : XR_FALSE;
+        g_devices[index].is_active = (device_def.always_active || device_def.default_active) ? XR_TRUE : XR_FALSE;
 
         g_inputs[index].values.resize(device_def.components.size());
         for (size_t component_index = 0; component_index < device_def.components.size(); ++component_index) {
