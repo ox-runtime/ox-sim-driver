@@ -681,6 +681,11 @@ extern "C" void sim_submit_frame(XrTime frame_time, uint32_t eye, uint32_t w, ui
         return;
     }
 
+    const size_t expected_size = static_cast<size_t>(w) * h * 4;
+    if (size != expected_size) {
+        return;
+    }
+
     std::lock_guard<std::mutex> lock(g_frame_mutex);
     if (!normalize_frame_preview_rgba(data, w, h, size, &g_frame_pixels[eye])) {
         return;
