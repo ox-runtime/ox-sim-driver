@@ -2,9 +2,9 @@
 #include <ox_sim.h>
 #include <spdlog/spdlog.h>
 
+#include <climits>
 #include <cstdio>
 #include <cstring>
-#include <string>
 
 #include "device_profiles.hpp"
 #include "gui/gui_window.h"
@@ -23,6 +23,8 @@ namespace {
 namespace sim_math = ox_sim::math;
 
 GuiWindow g_gui;
+bool g_gui_enabled = false;
+bool g_rest_api_enabled = false;
 
 const DeviceProfile* current_profile() {
     char profile_name[64] = {};
@@ -43,15 +45,17 @@ static int simulator_initialize(void) {
         return 0;
     }
 
-    if (!GetHttpServer().Start(kHttpServerPort)) {
-        spdlog::warn("Failed to start HTTP API server on port {}", kHttpServerPort);
+    if (g_rest_api_enabled && !GetHttpServer().Start()) {
+        spdlog::warn("Failed to start HTTP API server on port {}", GetHttpServer().port());
     }
 
-    if (!g_gui.Start()) {
-        spdlog::error("Failed to start GUI window");
-        GetHttpServer().Stop();
-        ox_sim_shutdown();
-        return 0;
+    if (g_gui_enabled) {
+        if (!g_gui.Start()) {
+            spdlog::error("Failed to start GUI window");
+            GetHttpServer().Stop();
+            ox_sim_shutdown();
+            return 0;
+        }
     }
 
     spdlog::info("Simulator driver initialized successfully");
@@ -69,11 +73,25 @@ static void simulator_shutdown(void) {
 static int simulator_is_device_connected(void) { return 1; }
 
 static int simulator_is_driver_running(void) {
-    if (!g_gui.IsRunning()) {
+    if (g_gui_enabled && !g_gui.IsRunning()) {
         spdlog::info("Simulator GUI window is closed.");
         return 0;
     }
     return 1;
+}
+
+static void simulator_set_config_bool(const char* key, XrBool32 value) {
+    if (std::strcmp(key, "gui.enabled") == 0) {
+        g_gui_enabled = (value == XR_TRUE);
+    } else if (std::strcmp(key, "rest_api.enabled") == 0) {
+        g_rest_api_enabled = (value == XR_TRUE);
+    }
+}
+
+static void simulator_set_config_int(const char* key, int64_t value) {
+    if (std::strcmp(key, "rest_api.port") == 0 && value > 0 && value <= INT_MAX) {
+        GetHttpServer().SetPort((int)value);
+    }
 }
 
 static void simulator_get_system_properties(XrSystemProperties* props) {
@@ -119,8 +137,8 @@ static void simulator_update_devices(XrTime predicted_time, OxDeviceState* out_s
     sim_copy_devices(out_states, OX_MAX_DEVICES, out_count);
 }
 
-static XrResult simulator_get_input_state_boolean(XrTime predicted_time, const char* user_path,
-                                                  const char* component_path, XrBool32* out_value) {
+static XrResult simulator_get_input_state_bool(XrTime predicted_time, const char* user_path, const char* component_path,
+                                               XrBool32* out_value) {
     (void)predicted_time;
     uint32_t raw_value = 0;
     const OxSimResult result = ox_sim_get_input_state_boolean(user_path, component_path, &raw_value);
@@ -169,24 +187,26 @@ static void simulator_submit_frame_pixels(XrTime frame_time, uint32_t eye_index,
 
 // ===== Driver Registration =====
 
-extern "C" OX_DRIVER_EXPORT int ox_driver_register(OxDriverCallbacks* callbacks) {
-    if (!callbacks) {
+extern "C" OX_DRIVER_EXPORT int ox_driver_register(OxDriver* driver) {
+    if (!driver) {
         return 0;
     }
 
-    callbacks->initialize = simulator_initialize;
-    callbacks->shutdown = simulator_shutdown;
-    callbacks->is_driver_running = simulator_is_driver_running;
-    callbacks->is_device_connected = simulator_is_device_connected;
-    callbacks->get_system_properties = simulator_get_system_properties;
-    callbacks->update_view = simulator_update_view;
-    callbacks->update_devices = simulator_update_devices;
-    callbacks->get_input_state_boolean = simulator_get_input_state_boolean;
-    callbacks->get_input_state_float = simulator_get_input_state_float;
-    callbacks->get_input_state_vector2f = simulator_get_input_state_vector2f;
-    callbacks->get_interaction_profiles = simulator_get_interaction_profiles;
-    callbacks->on_session_state_changed = simulator_on_session_state_changed;
-    callbacks->submit_frame_pixels = simulator_submit_frame_pixels;
+    driver->initialize = simulator_initialize;
+    driver->shutdown = simulator_shutdown;
+    driver->is_driver_running = simulator_is_driver_running;
+    driver->set_config_bool = simulator_set_config_bool;
+    driver->set_config_int = simulator_set_config_int;
+    driver->is_device_connected = simulator_is_device_connected;
+    driver->get_system_properties = simulator_get_system_properties;
+    driver->update_view = simulator_update_view;
+    driver->update_devices = simulator_update_devices;
+    driver->get_input_state_bool = simulator_get_input_state_bool;
+    driver->get_input_state_float = simulator_get_input_state_float;
+    driver->get_input_state_vector2f = simulator_get_input_state_vector2f;
+    driver->get_interaction_profiles = simulator_get_interaction_profiles;
+    driver->on_session_state_changed = simulator_on_session_state_changed;
+    driver->submit_frame_pixels = simulator_submit_frame_pixels;
 
     return 1;
 }

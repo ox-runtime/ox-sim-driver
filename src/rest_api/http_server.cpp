@@ -146,7 +146,13 @@ HttpServer& GetHttpServer() { return g_http_server; }
 HttpServer::HttpServer() = default;
 HttpServer::~HttpServer() { Stop(); }
 
-bool HttpServer::Start(int port) {
+void HttpServer::SetPort(int port) {
+    if (port > 0) {
+        port_ = port;
+    }
+}
+
+bool HttpServer::Start() {
     if (running_.load()) {
         return false;
     }
@@ -155,7 +161,6 @@ bool HttpServer::Start(int port) {
         server_thread_.join();
     }
 
-    port_ = port;
     should_stop_.store(false);
     server_thread_ = std::thread(&HttpServer::ServerThread, this);
     std::this_thread::sleep_for(std::chrono::milliseconds(100));

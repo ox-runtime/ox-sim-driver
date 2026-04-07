@@ -86,7 +86,7 @@ if(NOT TARGET whereami)
     endif()
 endif()
 
-set(OUTPUT_FOLDER "ox_simulator")
+set(OUTPUT_FOLDER "simulator")
 
 # Prefer GLVND on Linux so FindOpenGL resolves the split libOpenGL/libGLX packages
 # used on modern distributions and GitHub runners.

@@ -173,24 +173,26 @@ void GuiWindow::RenderFrame() {
 
         HttpServer& http_server = GetHttpServer();
         bool api_on = http_server.IsRunning();
+        const int api_port = http_server.port();
         if (vog::widgets::ToggleButton("API Server:", &api_on, false)) {
             if (api_on) {
-                if (http_server.Start(kHttpServerPort)) {
-                    status_message_ = std::string("API Server enabled (port ") + std::to_string(kHttpServerPort) + ")";
+                if (http_server.Start()) {
+                    status_message_ = std::string("API Server enabled (port ") + std::to_string(api_port) + ")";
                 } else {
-                    status_message_ =
-                        std::string("Failed to start API server on port ") + std::to_string(kHttpServerPort);
+                    status_message_ = std::string("Failed to start API server on port ") + std::to_string(api_port);
                 }
             } else {
                 http_server.Stop();
                 status_message_ = "API Server disabled";
             }
         }
-        vog::widgets::ShowItemTooltip("Toggle the local HTTP API server on port 8765");
+        const std::string api_toggle_tooltip =
+            std::string("Toggle the local HTTP API server on port ") + std::to_string(api_port);
+        vog::widgets::ShowItemTooltip(api_toggle_tooltip.c_str());
 
         ImGui::SameLine();
         if (ImGui::Button(ICON_FA_GLOBE "##copy_api_url")) {
-            const std::string api_url = std::string("http://127.0.0.1:") + std::to_string(kHttpServerPort);
+            const std::string api_url = std::string("http://127.0.0.1:") + std::to_string(api_port);
             glfwSetClipboardString(window_.GetNativeWindow(), api_url.c_str());
             status_message_ = "Copied API URL to clipboard";
         }
