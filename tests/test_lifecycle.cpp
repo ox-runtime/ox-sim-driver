@@ -8,17 +8,21 @@ TEST_F(UninitializedApiTest, ReportsNotInitializedBeforeInitialize) {
 }
 
 TEST_F(UninitializedApiTest, RejectsInvalidArguments) {
-    EXPECT_EQ(ox_sim_get_current_profile(nullptr, 1), OX_SIM_ERROR_INVALID_ARGUMENT);
+    EXPECT_EQ(ox_sim_get_status(nullptr), OX_SIM_ERROR_INVALID_ARGUMENT);
+    EXPECT_EQ(ox_sim_get_view_count(nullptr), OX_SIM_ERROR_INVALID_ARGUMENT);
+    EXPECT_EQ(ox_sim_get_view_info(0, nullptr), OX_SIM_ERROR_INVALID_ARGUMENT);
+    EXPECT_EQ(ox_sim_get_view(0, nullptr, 0), OX_SIM_ERROR_INVALID_ARGUMENT);
+    EXPECT_EQ(ox_sim_get_profile(nullptr, 1), OX_SIM_ERROR_INVALID_ARGUMENT);
+    EXPECT_EQ(ox_sim_get_profile_info(nullptr), OX_SIM_ERROR_INVALID_ARGUMENT);
     EXPECT_EQ(ox_sim_get_device_count(nullptr), OX_SIM_ERROR_INVALID_ARGUMENT);
-    EXPECT_EQ(ox_sim_get_device_state(0, nullptr), OX_SIM_ERROR_INVALID_ARGUMENT);
-    EXPECT_EQ(ox_sim_get_device_pose(nullptr, nullptr, nullptr), OX_SIM_ERROR_INVALID_ARGUMENT);
-    EXPECT_EQ(ox_sim_set_device_pose(nullptr, nullptr, 0), OX_SIM_ERROR_INVALID_ARGUMENT);
-    EXPECT_EQ(ox_sim_get_input_state_boolean(nullptr, nullptr, nullptr), OX_SIM_ERROR_INVALID_ARGUMENT);
-    EXPECT_EQ(ox_sim_set_input_state_float(nullptr, nullptr, 0.0f), OX_SIM_ERROR_INVALID_ARGUMENT);
-    EXPECT_EQ(ox_sim_get_input_state_vector2f(nullptr, nullptr, nullptr), OX_SIM_ERROR_INVALID_ARGUMENT);
-    EXPECT_EQ(ox_sim_get_session_state(nullptr), OX_SIM_ERROR_INVALID_ARGUMENT);
-    EXPECT_EQ(ox_sim_get_app_fps(nullptr), OX_SIM_ERROR_INVALID_ARGUMENT);
-    EXPECT_EQ(ox_sim_get_frame_preview(nullptr), OX_SIM_ERROR_INVALID_ARGUMENT);
+    EXPECT_EQ(ox_sim_get_device_info(0, nullptr), OX_SIM_ERROR_INVALID_ARGUMENT);
+    EXPECT_EQ(ox_sim_get_device(nullptr, nullptr), OX_SIM_ERROR_INVALID_ARGUMENT);
+    EXPECT_EQ(ox_sim_set_device(nullptr, nullptr), OX_SIM_ERROR_INVALID_ARGUMENT);
+    EXPECT_EQ(ox_sim_get_component_count(nullptr, nullptr), OX_SIM_ERROR_INVALID_ARGUMENT);
+    EXPECT_EQ(ox_sim_get_component_info(nullptr, 0, nullptr), OX_SIM_ERROR_INVALID_ARGUMENT);
+    EXPECT_EQ(ox_sim_get_input_boolean(nullptr, nullptr, nullptr), OX_SIM_ERROR_INVALID_ARGUMENT);
+    EXPECT_EQ(ox_sim_set_input_float(nullptr, nullptr, 0.0f), OX_SIM_ERROR_INVALID_ARGUMENT);
+    EXPECT_EQ(ox_sim_get_input_vector2f(nullptr, nullptr, nullptr), OX_SIM_ERROR_INVALID_ARGUMENT);
 }
 
 TEST_F(UninitializedApiTest, TracksInitializationReferenceCount) {

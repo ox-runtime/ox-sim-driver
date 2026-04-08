@@ -7,6 +7,15 @@
 
 Both the GUI and the local REST server talk to the same internal C automation API. When the driver is loaded by `ox-runtime`, it starts the GUI and the HTTP API server together. The GUI can turn the HTTP API on or off at runtime.
 
+The API is organized around the following resources:
+
+- `Status`: session state and app FPS
+- `Views`: latest eye textures
+- `Profile`: active profile ID and metadata
+- `Devices`: static device metadata and live pose/active state
+- `Components`: static input metadata per device
+- `Inputs`: typed boolean, float, and `vec2` setters/getters
+
 ## Build
 
 1. (Linux-only) Install platform dependencies:
@@ -47,6 +56,7 @@ If `OX_SIM_BUILD_EXAMPLES` is enabled, the C API example is also built under `bu
 - When used through the C API alone, it does not start the GUI and the HTTP API server automatically.
 - The active profile can be changed at runtime through the GUI, the REST API, or the C API.
 - The eye preview supports cursor coordinate readout, FPS-style drag-to-look navigation, yaw-relative `WASD` movement with world-up `R/F`, arrow-key pitch/yaw that ignores roll, and copying the current preview image to the clipboard from the preview overlay button.
+- View metadata and pixel transfer are split in the C API: call `ox_sim_get_view_info()` first to get `data_size`, then allocate a caller-owned RGBA8 buffer and call `ox_sim_get_view()` to copy the pixels.
 
 ## Documentation
 

@@ -28,7 +28,7 @@ bool g_rest_api_enabled = false;
 
 const DeviceProfile* current_profile() {
     char profile_name[64] = {};
-    if (ox_sim_get_current_profile(profile_name, sizeof(profile_name)) != OX_SIM_SUCCESS) {
+    if (ox_sim_get_profile(profile_name, sizeof(profile_name)) != OX_SIM_SUCCESS) {
         return nullptr;
     }
 
@@ -111,15 +111,16 @@ static void simulator_get_system_properties(XrSystemProperties* props) {
 static void simulator_update_view(XrTime predicted_time, uint32_t eye_index, XrView* out_view) {
     (void)predicted_time;
 
-    XrPosef hmd_pose = {{0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 1.6f, 0.0f}};
-    XrBool32 is_active = XR_FALSE;
-    ox_sim_get_device_pose("/user/head", &hmd_pose, &is_active);
+    OxDeviceState hmd_state = {};
+    hmd_state.pose = {{0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 1.6f, 0.0f}};
+    ox_sim_get_device("/user/head", &hmd_state);
 
     const float ipd = 0.063f;
     const float eye_offset = eye_index == 0 ? -ipd / 2.0f : ipd / 2.0f;
-    const glm::vec3 rotated_offset = sim_math::RotateVector(hmd_pose.orientation, glm::vec3(eye_offset, 0.0f, 0.0f));
+    const glm::vec3 rotated_offset =
+        sim_math::RotateVector(hmd_state.pose.orientation, glm::vec3(eye_offset, 0.0f, 0.0f));
 
-    out_view->pose = hmd_pose;
+    out_view->pose = hmd_state.pose;
     out_view->pose.position.x += rotated_offset.x;
     out_view->pose.position.y += rotated_offset.y;
     out_view->pose.position.z += rotated_offset.z;
@@ -140,13 +141,13 @@ static void simulator_update_devices(XrTime predicted_time, OxDeviceState* out_s
 static XrResult simulator_get_input_state_bool(XrTime predicted_time, const char* user_path, const char* component_path,
                                                XrBool32* out_value) {
     (void)predicted_time;
-    uint32_t raw_value = 0;
-    const OxSimResult result = ox_sim_get_input_state_boolean(user_path, component_path, &raw_value);
+    XrBool32 raw_value = XR_FALSE;
+    const OxSimResult result = ox_sim_get_input_boolean(user_path, component_path, &raw_value);
     if (result != OX_SIM_SUCCESS) {
         return XR_ERROR_PATH_UNSUPPORTED;
     }
     if (out_value) {
-        *out_value = raw_value ? XR_TRUE : XR_FALSE;
+        *out_value = raw_value;
     }
     return XR_SUCCESS;
 }
@@ -154,15 +155,14 @@ static XrResult simulator_get_input_state_bool(XrTime predicted_time, const char
 static XrResult simulator_get_input_state_float(XrTime predicted_time, const char* user_path,
                                                 const char* component_path, float* out_value) {
     (void)predicted_time;
-    return ox_sim_get_input_state_float(user_path, component_path, out_value) == OX_SIM_SUCCESS
-               ? XR_SUCCESS
-               : XR_ERROR_PATH_UNSUPPORTED;
+    return ox_sim_get_input_float(user_path, component_path, out_value) == OX_SIM_SUCCESS ? XR_SUCCESS
+                                                                                          : XR_ERROR_PATH_UNSUPPORTED;
 }
 
 static XrResult simulator_get_input_state_vector2f(XrTime predicted_time, const char* user_path,
                                                    const char* component_path, XrVector2f* out_value) {
     (void)predicted_time;
-    return ox_sim_get_input_state_vector2f(user_path, component_path, out_value) == OX_SIM_SUCCESS
+    return ox_sim_get_input_vector2f(user_path, component_path, out_value) == OX_SIM_SUCCESS
                ? XR_SUCCESS
                : XR_ERROR_PATH_UNSUPPORTED;
 }

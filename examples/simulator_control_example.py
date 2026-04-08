@@ -17,6 +17,14 @@ class XrPosef(ctypes.Structure):
     _fields_ = [("orientation", XrQuaternionf), ("position", XrVector3f)]
 
 
+class OxDeviceState(ctypes.Structure):
+    _fields_ = [
+        ("user_path", ctypes.c_char * 256),
+        ("pose", XrPosef),
+        ("is_active", ctypes.c_uint32),
+    ]
+
+
 def default_library_path() -> Path:
     base = Path(__file__).resolve().parents[1]
     if sys.platform.startswith("win"):
@@ -33,29 +41,32 @@ def main() -> None:
     sim.ox_sim_initialize.argtypes = []
     sim.ox_sim_initialize.restype = ctypes.c_int
     sim.ox_sim_shutdown.argtypes = []
-    sim.ox_sim_set_current_profile.argtypes = [ctypes.c_char_p]
-    sim.ox_sim_set_current_profile.restype = ctypes.c_int
-    sim.ox_sim_set_device_pose.argtypes = [ctypes.c_char_p, ctypes.POINTER(XrPosef), ctypes.c_uint32]
-    sim.ox_sim_set_device_pose.restype = ctypes.c_int
-    sim.ox_sim_set_input_state_float.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_float]
-    sim.ox_sim_set_input_state_float.restype = ctypes.c_int
+    sim.ox_sim_set_profile.argtypes = [ctypes.c_char_p]
+    sim.ox_sim_set_profile.restype = ctypes.c_int
+    sim.ox_sim_set_device.argtypes = [ctypes.c_char_p, ctypes.POINTER(OxDeviceState)]
+    sim.ox_sim_set_device.restype = ctypes.c_int
+    sim.ox_sim_set_input_float.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_float]
+    sim.ox_sim_set_input_float.restype = ctypes.c_int
 
     if sim.ox_sim_initialize() != 0:
         raise RuntimeError("ox_sim_initialize failed")
 
-    sim.ox_sim_set_current_profile(b"oculus_quest_2")
+    sim.ox_sim_set_profile(b"oculus_quest_2")
     print("Driving the simulator through the local C API. Press Ctrl+C to stop.")
 
     offset = 0.0
     try:
         while True:
             offset += 0.01
-            pose = XrPosef(
-                orientation=XrQuaternionf(0.0, 0.0, 0.0, 1.0),
-                position=XrVector3f(-0.2 + offset, 1.4, -0.4),
+            state = OxDeviceState(
+                pose=XrPosef(
+                    orientation=XrQuaternionf(0.0, 0.0, 0.0, 1.0),
+                    position=XrVector3f(-0.2 + offset, 1.4, -0.4),
+                ),
+                is_active=1,
             )
-            sim.ox_sim_set_device_pose(b"/user/hand/left", ctypes.byref(pose), 1)
-            sim.ox_sim_set_input_state_float(b"/user/hand/left", b"/input/trigger/value", 0.5)
+            sim.ox_sim_set_device(b"/user/hand/left", ctypes.byref(state))
+            sim.ox_sim_set_input_float(b"/user/hand/left", b"/input/trigger/value", 0.5)
             time.sleep(1.0 / 60.0)
     except KeyboardInterrupt:
         pass

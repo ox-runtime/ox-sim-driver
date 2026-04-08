@@ -8,14 +8,12 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
-#include <sstream>
 #include <string>
 #include <vector>
 
 #define STB_IMAGE_WRITE_STATIC
 #include "crow/app.h"
 #include "crow/json.h"
-#include "device_profiles.hpp"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
@@ -26,23 +24,14 @@ namespace {
 
 HttpServer g_http_server;
 
-const DeviceProfile* current_profile() {
-    char profile_name[64] = {};
-    if (ox_sim_get_current_profile(profile_name, sizeof(profile_name)) != OX_SIM_SUCCESS) {
-        return nullptr;
-    }
-
-    return GetDeviceProfileByName(profile_name);
-}
-
-const char* component_type_name(ComponentType type) {
+const char* component_type_name(OxSimComponentType type) {
     switch (type) {
-        case ComponentType::BOOLEAN:
+        case OX_SIM_COMPONENT_TYPE_BOOLEAN:
             return "boolean";
-        case ComponentType::FLOAT:
+        case OX_SIM_COMPONENT_TYPE_FLOAT:
             return "float";
-        case ComponentType::VEC2:
-            return "vec2";
+        case OX_SIM_COMPONENT_TYPE_VEC2:
+            return "vector2";
         default:
             return "unknown";
     }
@@ -71,11 +60,6 @@ const char* session_state_name(XrSessionState state) {
         default:
             return "unknown";
     }
-}
-
-bool is_session_active(XrSessionState state) {
-    return state == XR_SESSION_STATE_SYNCHRONIZED || state == XR_SESSION_STATE_VISIBLE ||
-           state == XR_SESSION_STATE_FOCUSED;
 }
 
 void png_write_callback(void* context, void* data, int size) {
@@ -139,6 +123,29 @@ bool split_input_path(const std::string& path, std::string* user_path, std::stri
     return true;
 }
 
+bool find_component_info(const std::string& user_path, const std::string& component_path,
+                         OxSimComponentInfo* out_info) {
+    uint32_t component_count = 0;
+    if (ox_sim_get_component_count(user_path.c_str(), &component_count) != OX_SIM_SUCCESS) {
+        return false;
+    }
+
+    for (uint32_t index = 0; index < component_count; ++index) {
+        OxSimComponentInfo component_info = {};
+        if (ox_sim_get_component_info(user_path.c_str(), index, &component_info) != OX_SIM_SUCCESS) {
+            continue;
+        }
+        if (component_path == component_info.path) {
+            if (out_info) {
+                *out_info = component_info;
+            }
+            return true;
+        }
+    }
+
+    return false;
+}
+
 }  // namespace
 
 HttpServer& GetHttpServer() { return g_http_server; }
@@ -186,42 +193,49 @@ void HttpServer::ServerThread() {
     crow::SimpleApp& app = *app_;
 
     CROW_ROUTE(app, "/v1/status").methods("GET"_method)([]() {
-        XrSessionState state = XR_SESSION_STATE_UNKNOWN;
-        uint32_t fps = 0;
-        if (ox_sim_get_session_state(&state) != OX_SIM_SUCCESS || ox_sim_get_app_fps(&fps) != OX_SIM_SUCCESS) {
+        OxSimStatus status = {};
+        if (ox_sim_get_status(&status) != OX_SIM_SUCCESS) {
             return crow::response(503, "Simulator state unavailable");
         }
 
         crow::json::wvalue response;
-        response["session_state"] = session_state_name(state);
-        response["session_state_id"] = static_cast<uint32_t>(state);
-        response["session_active"] = is_session_active(state);
-        response["fps"] = is_session_active(state) ? fps : 0u;
+        response["session_state"] = session_state_name(status.session_state);
+        response["session_state_id"] = static_cast<uint32_t>(status.session_state);
+        response["session_active"] = status.session_active != XR_FALSE;
+        response["fps"] = status.fps;
         return crow::response(response);
     });
 
     auto eye_frame_handler = [](const crow::request& req, int eye) -> crow::response {
-        if (eye < 0 || eye > 1) {
+        uint32_t view_count = 0;
+        if (eye < 0 || ox_sim_get_view_count(&view_count) != OX_SIM_SUCCESS ||
+            static_cast<uint32_t>(eye) >= view_count) {
             return crow::response(404, "Eye not found");
         }
 
-        OxSimFramePreview preview = {};
-        if (ox_sim_get_frame_preview(&preview) != OX_SIM_SUCCESS) {
-            return crow::response(503, "Frame preview unavailable");
+        OxSimViewInfo view = {};
+        const OxSimResult view_result = ox_sim_get_view_info(static_cast<uint32_t>(eye), &view);
+        if (view_result == OX_SIM_ERROR_INVALID_ARGUMENT) {
+            return crow::response(404, "Eye not found");
         }
-
-        if (preview.width == 0 || preview.height == 0 || !preview.pixel_data[eye] || preview.data_size[eye] == 0) {
+        if (view_result != OX_SIM_SUCCESS || view.width == 0 || view.height == 0 || view.data_size == 0) {
             return crow::response(404, "No frame available");
         }
 
-        uint32_t output_width = preview.width;
-        uint32_t output_height = preview.height;
+        std::vector<uint8_t> pixels(view.data_size);
+        if (ox_sim_get_view(static_cast<uint32_t>(eye), pixels.data(), static_cast<uint32_t>(pixels.size())) !=
+            OX_SIM_SUCCESS) {
+            return crow::response(503, "Frame preview unavailable");
+        }
+
+        uint32_t output_width = view.width;
+        uint32_t output_height = view.height;
 
         if (auto size_param = req.url_params.get("size")) {
             try {
                 int requested_width = std::stoi(size_param);
                 if (requested_width > 0) {
-                    float aspect_ratio = static_cast<float>(preview.width) / static_cast<float>(preview.height);
+                    float aspect_ratio = static_cast<float>(view.width) / static_cast<float>(view.height);
                     output_width = static_cast<uint32_t>(requested_width);
                     output_height = static_cast<uint32_t>(requested_width / aspect_ratio);
                 }
@@ -230,12 +244,11 @@ void HttpServer::ServerThread() {
         }
 
         std::vector<uint8_t> png;
-        if (output_width == preview.width && output_height == preview.height) {
-            png = encode_rgba_to_png(preview.pixel_data[eye], preview.width, preview.height);
+        if (output_width == view.width && output_height == view.height) {
+            png = encode_rgba_to_png(pixels.data(), view.width, view.height);
         } else {
             std::vector<uint8_t> resized_pixels =
-                scale_rgba_nearest(static_cast<const uint8_t*>(preview.pixel_data[eye]), preview.width, preview.height,
-                                   output_width, &output_height);
+                scale_rgba_nearest(pixels.data(), view.width, view.height, output_width, &output_height);
             if (resized_pixels.empty()) {
                 return crow::response(500, "Image resizing failed");
             }
@@ -256,32 +269,50 @@ void HttpServer::ServerThread() {
     CROW_ROUTE(app, "/v1/views/<int>").methods("GET"_method)(eye_frame_handler);
 
     CROW_ROUTE(app, "/v1/profile").methods("GET"_method)([]() {
-        const DeviceProfile* profile = current_profile();
-        if (!profile) {
-            return crow::response(500, "No device profile loaded");
+        char profile_id[64] = {};
+        OxSimProfileInfo profile_info = {};
+        if (ox_sim_get_profile(profile_id, sizeof(profile_id)) != OX_SIM_SUCCESS ||
+            ox_sim_get_profile_info(&profile_info) != OX_SIM_SUCCESS) {
+            return crow::response(503, "Profile unavailable");
         }
 
         crow::json::wvalue response;
-        response["type"] = profile->name;
-        response["manufacturer"] = profile->manufacturer;
-        response["interaction_profile"] = profile->interaction_profile;
+        response["id"] = profile_id;
+        response["name"] = profile_info.name;
+        response["manufacturer"] = profile_info.manufacturer;
+        response["interaction_profile"] = profile_info.interaction_profile;
+
+        uint32_t device_count = 0;
+        if (ox_sim_get_device_count(&device_count) != OX_SIM_SUCCESS) {
+            return crow::response(503, "Devices unavailable");
+        }
 
         crow::json::wvalue devices_array(crow::json::type::List);
-        for (size_t i = 0; i < profile->devices.size(); ++i) {
-            const auto& device = profile->devices[i];
+        for (uint32_t i = 0; i < device_count; ++i) {
+            OxSimDeviceInfo device = {};
+            if (ox_sim_get_device_info(i, &device) != OX_SIM_SUCCESS) {
+                continue;
+            }
+
             crow::json::wvalue dev_obj;
             dev_obj["user_path"] = device.user_path;
             dev_obj["role"] = device.role;
-            dev_obj["always_active"] = device.always_active;
+            dev_obj["always_active"] = device.always_active != XR_FALSE;
 
             crow::json::wvalue components_array(crow::json::type::List);
-            for (size_t j = 0; j < device.components.size(); ++j) {
-                const auto& component = device.components[j];
-                crow::json::wvalue comp_obj;
-                comp_obj["path"] = component.path;
-                comp_obj["type"] = component_type_name(component.type);
-                comp_obj["description"] = component.description;
-                components_array[j] = std::move(comp_obj);
+            uint32_t component_count = 0;
+            if (ox_sim_get_component_count(device.user_path, &component_count) == OX_SIM_SUCCESS) {
+                for (uint32_t j = 0; j < component_count; ++j) {
+                    OxSimComponentInfo component = {};
+                    if (ox_sim_get_component_info(device.user_path, j, &component) != OX_SIM_SUCCESS) {
+                        continue;
+                    }
+                    crow::json::wvalue comp_obj;
+                    comp_obj["path"] = component.path;
+                    comp_obj["type"] = component_type_name(component.type);
+                    comp_obj["description"] = component.description;
+                    components_array[j] = std::move(comp_obj);
+                }
             }
 
             dev_obj["components"] = std::move(components_array);
@@ -297,44 +328,47 @@ void HttpServer::ServerThread() {
         if (!json) {
             return crow::response(400, "Invalid JSON");
         }
-        if (!json.has("device") || json["device"].t() != crow::json::type::String) {
-            return crow::response(400, "Missing required field: device (string)");
+
+        const bool has_profile_id = json.has("profile_id") && json["profile_id"].t() == crow::json::type::String;
+        const bool has_device = json.has("device") && json["device"].t() == crow::json::type::String;
+        if (!has_profile_id && !has_device) {
+            return crow::response(400, "Missing required field: profile_id (string)");
         }
 
-        std::string device_name = json["device"].s();
-        if (ox_sim_set_current_profile(device_name.c_str()) != OX_SIM_SUCCESS) {
-            return crow::response(404, "Unknown device: " + device_name);
+        std::string profile_id = has_profile_id ? json["profile_id"].s() : json["device"].s();
+        if (ox_sim_set_profile(profile_id.c_str()) != OX_SIM_SUCCESS) {
+            return crow::response(404, "Unknown profile: " + profile_id);
         }
 
-        const DeviceProfile* profile = current_profile();
-        if (!profile) {
+        OxSimProfileInfo profile_info = {};
+        if (ox_sim_get_profile_info(&profile_info) != OX_SIM_SUCCESS) {
             return crow::response(500, "Failed to load switched profile");
         }
 
         crow::json::wvalue response;
         response["status"] = "ok";
-        response["device"] = profile->name;
-        response["interaction_profile"] = profile->interaction_profile;
+        response["profile_id"] = profile_id;
+        response["name"] = profile_info.name;
+        response["interaction_profile"] = profile_info.interaction_profile;
         return crow::response(response);
     });
 
     CROW_ROUTE(app, "/v1/devices/<path>").methods("GET"_method)([](const std::string& user_path) {
         const std::string full_user_path = "/" + user_path;
-        XrPosef pose = {};
-        XrBool32 active = XR_FALSE;
-        if (ox_sim_get_device_pose(full_user_path.c_str(), &pose, &active) != OX_SIM_SUCCESS) {
+        OxDeviceState state = {};
+        if (ox_sim_get_device(full_user_path.c_str(), &state) != OX_SIM_SUCCESS) {
             return crow::response(404, "Device not found");
         }
 
         crow::json::wvalue response;
-        response["active"] = active != 0;
-        response["position"]["x"] = pose.position.x;
-        response["position"]["y"] = pose.position.y;
-        response["position"]["z"] = pose.position.z;
-        response["orientation"]["x"] = pose.orientation.x;
-        response["orientation"]["y"] = pose.orientation.y;
-        response["orientation"]["z"] = pose.orientation.z;
-        response["orientation"]["w"] = pose.orientation.w;
+        response["active"] = state.is_active != XR_FALSE;
+        response["position"]["x"] = state.pose.position.x;
+        response["position"]["y"] = state.pose.position.y;
+        response["position"]["z"] = state.pose.position.z;
+        response["orientation"]["x"] = state.pose.orientation.x;
+        response["orientation"]["y"] = state.pose.orientation.y;
+        response["orientation"]["z"] = state.pose.orientation.z;
+        response["orientation"]["w"] = state.pose.orientation.w;
         return crow::response(response);
     });
 
@@ -351,18 +385,18 @@ void HttpServer::ServerThread() {
             }
 
             const std::string full_user_path = "/" + user_path;
-            XrPosef pose = {};
-            pose.position.x = json["position"]["x"].d();
-            pose.position.y = json["position"]["y"].d();
-            pose.position.z = json["position"]["z"].d();
-            pose.orientation.x = json["orientation"]["x"].d();
-            pose.orientation.y = json["orientation"]["y"].d();
-            pose.orientation.z = json["orientation"]["z"].d();
-            pose.orientation.w = json["orientation"]["w"].d();
-            XrBool32 active = json.has("active") ? (json["active"].b() ? XR_TRUE : XR_FALSE) : XR_TRUE;
+            OxDeviceState state = {};
+            state.pose.position.x = json["position"]["x"].d();
+            state.pose.position.y = json["position"]["y"].d();
+            state.pose.position.z = json["position"]["z"].d();
+            state.pose.orientation.x = json["orientation"]["x"].d();
+            state.pose.orientation.y = json["orientation"]["y"].d();
+            state.pose.orientation.z = json["orientation"]["z"].d();
+            state.pose.orientation.w = json["orientation"]["w"].d();
+            state.is_active = json.has("active") ? (json["active"].b() ? XR_TRUE : XR_FALSE) : XR_TRUE;
 
-            if (ox_sim_set_device_pose(full_user_path.c_str(), &pose, active) != OX_SIM_SUCCESS) {
-                return crow::response(500, "Failed to set device pose");
+            if (ox_sim_set_device(full_user_path.c_str(), &state) != OX_SIM_SUCCESS) {
+                return crow::response(500, "Failed to set device state");
             }
 
             return crow::response(200, "OK");
@@ -375,25 +409,45 @@ void HttpServer::ServerThread() {
             return crow::response(400, "Invalid binding path");
         }
 
-        uint32_t boolean_value = 0;
-        float float_value = 0.0f;
-        XrVector2f vec2_value = {};
-        const OxSimResult bool_result =
-            ox_sim_get_input_state_boolean(user_path.c_str(), component_path.c_str(), &boolean_value);
-        const OxSimResult float_result =
-            ox_sim_get_input_state_float(user_path.c_str(), component_path.c_str(), &float_value);
-        const OxSimResult vec2_result =
-            ox_sim_get_input_state_vector2f(user_path.c_str(), component_path.c_str(), &vec2_value);
-
-        if (bool_result != OX_SIM_SUCCESS && float_result != OX_SIM_SUCCESS && vec2_result != OX_SIM_SUCCESS) {
+        OxSimComponentInfo component_info = {};
+        if (!find_component_info(user_path, component_path, &component_info)) {
             return crow::response(404, "Input component not found");
         }
 
         crow::json::wvalue response;
-        response["boolean_value"] = boolean_value != 0;
-        response["float_value"] = float_value;
-        response["x"] = vec2_value.x;
-        response["y"] = vec2_value.y;
+        response["type"] = component_type_name(component_info.type);
+        response["description"] = component_info.description;
+
+        switch (component_info.type) {
+            case OX_SIM_COMPONENT_TYPE_BOOLEAN: {
+                XrBool32 value = XR_FALSE;
+                if (ox_sim_get_input_boolean(user_path.c_str(), component_path.c_str(), &value) != OX_SIM_SUCCESS) {
+                    return crow::response(404, "Input component not found");
+                }
+                response["value"] = value != XR_FALSE;
+                break;
+            }
+            case OX_SIM_COMPONENT_TYPE_FLOAT: {
+                float value = 0.0f;
+                if (ox_sim_get_input_float(user_path.c_str(), component_path.c_str(), &value) != OX_SIM_SUCCESS) {
+                    return crow::response(404, "Input component not found");
+                }
+                response["value"] = value;
+                break;
+            }
+            case OX_SIM_COMPONENT_TYPE_VEC2: {
+                XrVector2f value = {};
+                if (ox_sim_get_input_vector2f(user_path.c_str(), component_path.c_str(), &value) != OX_SIM_SUCCESS) {
+                    return crow::response(404, "Input component not found");
+                }
+                response["x"] = value.x;
+                response["y"] = value.y;
+                break;
+            }
+            default:
+                return crow::response(500, "Unsupported component type");
+        }
+
         return crow::response(response);
     });
 
@@ -405,23 +459,39 @@ void HttpServer::ServerThread() {
                 return crow::response(400, "Invalid binding path");
             }
 
+            OxSimComponentInfo component_info = {};
+            if (!find_component_info(user_path, component_path, &component_info)) {
+                return crow::response(404, "Input component not found");
+            }
+
             auto json = crow::json::load(req.body);
             if (!json) {
                 return crow::response(400, "Invalid JSON");
             }
 
             OxSimResult result = OX_SIM_ERROR_INVALID_ARGUMENT;
-            if (json.has("value")) {
-                if (json["value"].t() == crow::json::type::True || json["value"].t() == crow::json::type::False) {
-                    result = ox_sim_set_input_state_boolean(user_path.c_str(), component_path.c_str(),
-                                                            json["value"].b() ? 1u : 0u);
-                } else if (json["value"].t() == crow::json::type::Number) {
-                    result = ox_sim_set_input_state_float(user_path.c_str(), component_path.c_str(),
-                                                          static_cast<float>(json["value"].d()));
-                }
-            } else if (json.has("x") && json.has("y")) {
-                XrVector2f vec = {static_cast<float>(json["x"].d()), static_cast<float>(json["y"].d())};
-                result = ox_sim_set_input_state_vector2f(user_path.c_str(), component_path.c_str(), &vec);
+            switch (component_info.type) {
+                case OX_SIM_COMPONENT_TYPE_BOOLEAN:
+                    if (json.has("value") &&
+                        (json["value"].t() == crow::json::type::True || json["value"].t() == crow::json::type::False)) {
+                        result = ox_sim_set_input_boolean(user_path.c_str(), component_path.c_str(),
+                                                          json["value"].b() ? XR_TRUE : XR_FALSE);
+                    }
+                    break;
+                case OX_SIM_COMPONENT_TYPE_FLOAT:
+                    if (json.has("value") && json["value"].t() == crow::json::type::Number) {
+                        result = ox_sim_set_input_float(user_path.c_str(), component_path.c_str(),
+                                                        static_cast<float>(json["value"].d()));
+                    }
+                    break;
+                case OX_SIM_COMPONENT_TYPE_VEC2:
+                    if (json.has("x") && json.has("y")) {
+                        XrVector2f vec = {static_cast<float>(json["x"].d()), static_cast<float>(json["y"].d())};
+                        result = ox_sim_set_input_vector2f(user_path.c_str(), component_path.c_str(), &vec);
+                    }
+                    break;
+                default:
+                    break;
             }
 
             if (result != OX_SIM_SUCCESS) {
@@ -433,10 +503,10 @@ void HttpServer::ServerThread() {
 
     CROW_ROUTE(app, "/")([]() {
         return "ox Simulator API Server\n\nAvailable endpoints:\n"
-               "  GET      /v1/status                 - Session state and FPS\n"
+               "  GET      /v1/status                 - Session state and app FPS\n"
                "  GET/PUT  /v1/profile                - Get/switch device profile\n"
-               "  GET/PUT  /v1/devices/<user_path>    - Get/set device pose\n"
-               "  GET/PUT  /v1/inputs/<binding_path>  - Get/set input component state\n"
+               "  GET/PUT  /v1/devices/<user_path>    - Get/set device state\n"
+               "  GET/PUT  /v1/inputs/<binding_path>  - Get/set typed input state\n"
                "  GET      /v1/views/<eye>            - Eye texture (PNG), eye=0 or 1\n";
     });
 

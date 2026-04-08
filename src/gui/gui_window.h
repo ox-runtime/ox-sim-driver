@@ -75,6 +75,7 @@ class GuiWindow {
     uint32_t preview_height_ = 0;
     bool preview_textures_valid_ = false;
     XrTime last_preview_frame_time_ = 0;
+    OxSimViewInfo preview_view_infos_[2] = {};
     std::vector<uint8_t> preview_pixels_[2];
 };
 

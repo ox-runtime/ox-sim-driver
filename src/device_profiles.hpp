@@ -1,6 +1,18 @@
 #pragma once
 
+// device_profiles.hpp - Static device profile definitions for the OxDriver simulator.
+//
+// Profiles are immutable, statically allocated singletons (Meyer's pattern).
+// The sim runtime holds live state (poses, input values) separately; these
+// definitions only describe what hardware exists and what inputs it exposes.
+//
+// Internal fields on ComponentDef (hand_restriction, linked_vec2_path, linked_axis)
+// are runtime implementation details and are not exposed in the public C API.
+// ox_sim_get_component_info() maps ComponentDef -> OxSimComponentInfo via
+// ToPublicComponentType(), stripping internal fields at the boundary.
+
 #include <ox_driver.h>
+#include <ox_sim.h>
 
 #include <map>
 #include <stdexcept>
@@ -30,44 +42,64 @@ enum class Vec2Axis {
 };
 
 struct ComponentDef {
-    const char* path;
+    const char*   path;
     ComponentType type;
-    const char* description;
-    const char* hand_restriction = nullptr;
-    const char* linked_vec2_path = nullptr;
-    Vec2Axis linked_axis = Vec2Axis::NONE;
+    const char*   description;
+    // Restricts this component to one hand; null means valid on both.
+    // Used by the runtime to filter components when building action bindings.
+    const char*   hand_restriction  = nullptr;
+    // For float axis sub-components (e.g. /input/thumbstick/x), the parent
+    // vec2 component they feed into. The runtime uses this to keep them in sync.
+    const char*   linked_vec2_path  = nullptr;
+    Vec2Axis      linked_axis       = Vec2Axis::NONE;
 };
 
 struct DeviceDef {
-    const char* user_path;
-    const char* role;
-    bool always_active;
-    bool default_active;
-    XrPosef default_pose;
+    const char*               user_path;
+    const char*               role;
+    bool                      always_active;  // e.g. HMD is always active
+    bool                      default_active; // initial active state on profile load
+    XrPosef                   default_pose;
     std::vector<ComponentDef> components;
 };
 
 struct DeviceProfile {
-    DeviceType type;
+    DeviceType  type;
     const char* name;
     const char* manufacturer;
     const char* serial_prefix;
-    uint32_t vendor_id;
-    uint32_t product_id;
-    uint32_t display_width;
-    uint32_t display_height;
-    uint32_t recommended_width;
-    uint32_t recommended_height;
-    float refresh_rate;
-    float fov_left;
-    float fov_right;
-    float fov_up;
-    float fov_down;
-    bool has_position_tracking;
-    bool has_orientation_tracking;
-    const char* interaction_profile;
+    uint32_t    vendor_id;
+    uint32_t    product_id;
+    uint32_t    view_count;
+    uint32_t    display_width;
+    uint32_t    display_height;
+    uint32_t    recommended_width;
+    uint32_t    recommended_height;
+    float       refresh_rate;
+    float       fov_left;   // radians, negative = left of center
+    float       fov_right;  // radians, positive = right of center
+    float       fov_up;     // radians, positive = above center
+    float       fov_down;   // radians, negative = below center
+    bool        has_position_tracking;
+    bool        has_orientation_tracking;
+    const char* interaction_profile; // e.g. "/interaction_profiles/oculus/touch_controller"
     std::vector<DeviceDef> devices;
 };
+
+// Maps internal ComponentType to the public OxSimComponentType.
+// Called by ox_sim_get_component_info() at the API boundary.
+inline OxSimComponentType ToPublicComponentType(ComponentType type) {
+    switch (type) {
+        case ComponentType::BOOLEAN:
+            return OX_SIM_COMPONENT_TYPE_BOOLEAN;
+        case ComponentType::FLOAT:
+            return OX_SIM_COMPONENT_TYPE_FLOAT;
+        case ComponentType::VEC2:
+            return OX_SIM_COMPONENT_TYPE_VEC2;
+        default:
+            return OX_SIM_COMPONENT_TYPE_BOOLEAN;
+    }
+}
 
 namespace detail {
 
@@ -149,6 +181,7 @@ inline const DeviceProfile& Quest2Profile() {
         "QUEST2-SIM",
         0x2833,
         0x0186,
+        2,
         1832,
         1920,
         1832,
@@ -163,18 +196,8 @@ inline const DeviceProfile& Quest2Profile() {
         "/interaction_profiles/oculus/touch_controller",
         {
             {"/user/head", "hmd", true, true, {{0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 1.6f, 0.0f}}, {}},
-            {"/user/hand/left",
-             "left_controller",
-             false,
-             true,
-             {{0.0f, 0.0f, 0.0f, 1.0f}, {-0.2f, 1.4f, -0.3f}},
-             OculusTouchComponents()},
-            {"/user/hand/right",
-             "right_controller",
-             false,
-             true,
-             {{0.0f, 0.0f, 0.0f, 1.0f}, {0.2f, 1.4f, -0.3f}},
-             OculusTouchComponents()},
+            {"/user/hand/left", "left_controller", false, true, {{0.0f, 0.0f, 0.0f, 1.0f}, {-0.2f, 1.4f, -0.3f}}, OculusTouchComponents()},
+            {"/user/hand/right", "right_controller", false, true, {{0.0f, 0.0f, 0.0f, 1.0f}, {0.2f, 1.4f, -0.3f}}, OculusTouchComponents()},
         },
     };
     return profile;
@@ -188,6 +211,7 @@ inline const DeviceProfile& Quest3Profile() {
         "QUEST3-SIM",
         0x2833,
         0x0200,
+        2,
         2064,
         2208,
         2064,
@@ -202,18 +226,8 @@ inline const DeviceProfile& Quest3Profile() {
         "/interaction_profiles/oculus/touch_controller",
         {
             {"/user/head", "hmd", true, true, {{0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 1.6f, 0.0f}}, {}},
-            {"/user/hand/left",
-             "left_controller",
-             false,
-             true,
-             {{0.0f, 0.0f, 0.0f, 1.0f}, {-0.2f, 1.4f, -0.3f}},
-             OculusTouchComponents()},
-            {"/user/hand/right",
-             "right_controller",
-             false,
-             true,
-             {{0.0f, 0.0f, 0.0f, 1.0f}, {0.2f, 1.4f, -0.3f}},
-             OculusTouchComponents()},
+            {"/user/hand/left", "left_controller", false, true, {{0.0f, 0.0f, 0.0f, 1.0f}, {-0.2f, 1.4f, -0.3f}}, OculusTouchComponents()},
+            {"/user/hand/right", "right_controller", false, true, {{0.0f, 0.0f, 0.0f, 1.0f}, {0.2f, 1.4f, -0.3f}}, OculusTouchComponents()},
         },
     };
     return profile;
@@ -227,6 +241,7 @@ inline const DeviceProfile& ViveProfile() {
         "VIVE-SIM",
         0x0BB4,
         0x2C87,
+        2,
         1080,
         1200,
         1080,
@@ -241,18 +256,8 @@ inline const DeviceProfile& ViveProfile() {
         "/interaction_profiles/htc/vive_controller",
         {
             {"/user/head", "hmd", true, true, {{0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 1.6f, 0.0f}}, {}},
-            {"/user/hand/left",
-             "left_controller",
-             false,
-             true,
-             {{0.0f, 0.0f, 0.0f, 1.0f}, {-0.2f, 1.4f, -0.3f}},
-             ViveControllerComponents()},
-            {"/user/hand/right",
-             "right_controller",
-             false,
-             true,
-             {{0.0f, 0.0f, 0.0f, 1.0f}, {0.2f, 1.4f, -0.3f}},
-             ViveControllerComponents()},
+            {"/user/hand/left", "left_controller", false, true, {{0.0f, 0.0f, 0.0f, 1.0f}, {-0.2f, 1.4f, -0.3f}}, ViveControllerComponents()},
+            {"/user/hand/right", "right_controller", false, true, {{0.0f, 0.0f, 0.0f, 1.0f}, {0.2f, 1.4f, -0.3f}}, ViveControllerComponents()},
         },
     };
     return profile;
@@ -266,6 +271,7 @@ inline const DeviceProfile& IndexProfile() {
         "INDEX-SIM",
         0x28DE,
         0x2012,
+        2,
         1440,
         1600,
         1440,
@@ -280,18 +286,8 @@ inline const DeviceProfile& IndexProfile() {
         "/interaction_profiles/valve/index_controller",
         {
             {"/user/head", "hmd", true, true, {{0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 1.6f, 0.0f}}, {}},
-            {"/user/hand/left",
-             "left_controller",
-             false,
-             true,
-             {{0.0f, 0.0f, 0.0f, 1.0f}, {-0.2f, 1.4f, -0.3f}},
-             IndexControllerComponents()},
-            {"/user/hand/right",
-             "right_controller",
-             false,
-             true,
-             {{0.0f, 0.0f, 0.0f, 1.0f}, {0.2f, 1.4f, -0.3f}},
-             IndexControllerComponents()},
+            {"/user/hand/left", "left_controller", false, true, {{0.0f, 0.0f, 0.0f, 1.0f}, {-0.2f, 1.4f, -0.3f}}, IndexControllerComponents()},
+            {"/user/hand/right", "right_controller", false, true, {{0.0f, 0.0f, 0.0f, 1.0f}, {0.2f, 1.4f, -0.3f}}, IndexControllerComponents()},
         },
     };
     return profile;
@@ -309,6 +305,7 @@ inline const DeviceProfile& ViveTrackerProfile() {
         0,
         0,
         0,
+        0,
         0.0f,
         0.0f,
         0.0f,
@@ -318,36 +315,11 @@ inline const DeviceProfile& ViveTrackerProfile() {
         false,
         "/interaction_profiles/htc/vive_tracker_htcx",
         {
-            {"/user/vive_tracker_htcx/role/waist",
-             "waist_tracker",
-             true,
-             true,
-             {{0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 1.0f, 0.0f}},
-             ViveTrackerComponents()},
-            {"/user/vive_tracker_htcx/role/left_foot",
-             "left_foot_tracker",
-             true,
-             true,
-             {{0.0f, 0.0f, 0.0f, 1.0f}, {-0.15f, 0.1f, 0.0f}},
-             ViveTrackerComponents()},
-            {"/user/vive_tracker_htcx/role/right_foot",
-             "right_foot_tracker",
-             true,
-             true,
-             {{0.0f, 0.0f, 0.0f, 1.0f}, {0.15f, 0.1f, 0.0f}},
-             ViveTrackerComponents()},
-            {"/user/vive_tracker_htcx/role/left_shoulder",
-             "left_shoulder_tracker",
-             true,
-             true,
-             {{0.0f, 0.0f, 0.0f, 1.0f}, {-0.2f, 1.5f, 0.0f}},
-             ViveTrackerComponents()},
-            {"/user/vive_tracker_htcx/role/right_shoulder",
-             "right_shoulder_tracker",
-             true,
-             true,
-             {{0.0f, 0.0f, 0.0f, 1.0f}, {0.2f, 1.5f, 0.0f}},
-             ViveTrackerComponents()},
+            {"/user/vive_tracker_htcx/role/waist", "waist_tracker", true, true, {{0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 1.0f, 0.0f}}, ViveTrackerComponents()},
+            {"/user/vive_tracker_htcx/role/left_foot", "left_foot_tracker", true, true, {{0.0f, 0.0f, 0.0f, 1.0f}, {-0.15f, 0.1f, 0.0f}}, ViveTrackerComponents()},
+            {"/user/vive_tracker_htcx/role/right_foot", "right_foot_tracker", true, true, {{0.0f, 0.0f, 0.0f, 1.0f}, {0.15f, 0.1f, 0.0f}}, ViveTrackerComponents()},
+            {"/user/vive_tracker_htcx/role/left_shoulder", "left_shoulder_tracker", true, true, {{0.0f, 0.0f, 0.0f, 1.0f}, {-0.2f, 1.5f, 0.0f}}, ViveTrackerComponents()},
+            {"/user/vive_tracker_htcx/role/right_shoulder", "right_shoulder_tracker", true, true, {{0.0f, 0.0f, 0.0f, 1.0f}, {0.2f, 1.5f, 0.0f}}, ViveTrackerComponents()},
         },
     };
     return profile;
@@ -366,6 +338,7 @@ inline const std::map<std::string, DeviceType>& NameToType() {
 
 }  // namespace detail
 
+// Get the profile singleton for a given DeviceType. Always returns a valid reference.
 inline const DeviceProfile& GetDeviceProfile(DeviceType type) {
     switch (type) {
         case DeviceType::OCULUS_QUEST_2:
@@ -383,6 +356,7 @@ inline const DeviceProfile& GetDeviceProfile(DeviceType type) {
     }
 }
 
+// Get the profile ID string for a given DeviceType (e.g. "oculus_quest_2").
 inline const char* GetDeviceProfileId(DeviceType type) {
     switch (type) {
         case DeviceType::OCULUS_QUEST_2:
@@ -400,23 +374,23 @@ inline const char* GetDeviceProfileId(DeviceType type) {
     }
 }
 
+// Look up a profile by ID string. Returns nullptr if the ID is not recognized.
 inline const DeviceProfile* GetDeviceProfileByName(const std::string& name) {
-    const auto& name_to_type = detail::NameToType();
-    auto it = name_to_type.find(name);
-    if (it == name_to_type.end()) {
+    const auto& m = detail::NameToType();
+    auto it = m.find(name);
+    if (it == m.end()) {
         return nullptr;
     }
-
     return &GetDeviceProfile(it->second);
 }
 
+// Look up a DeviceType by ID string. Throws if the ID is not recognized.
 inline DeviceType GetDeviceTypeByName(const std::string& name) {
-    const auto& name_to_type = detail::NameToType();
-    auto it = name_to_type.find(name);
-    if (it == name_to_type.end()) {
+    const auto& m = detail::NameToType();
+    auto it = m.find(name);
+    if (it == m.end()) {
         throw std::runtime_error("Unknown device name: " + name);
     }
-
     return it->second;
 }
 
