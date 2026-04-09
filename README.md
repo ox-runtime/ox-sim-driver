@@ -43,9 +43,9 @@ cmake --build build --config Release
 
 Outputs:
 
-- Windows: `build/ox_simulator/ox_driver.dll`
-- Linux: `build/ox_simulator/libox_driver.so`
-- macOS: `build/ox_simulator/libox_driver.dylib`
+- Windows: `build/simulator/ox_driver.dll`
+- Linux: `build/simulator/libox_driver.so`
+- macOS: `build/simulator/libox_driver.dylib`
 
 If `OX_SIM_BUILD_EXAMPLES` is enabled, the C API example is also built under `build/examples`.
 
@@ -67,7 +67,7 @@ If `OX_SIM_BUILD_EXAMPLES` is enabled, the C API example is also built under `bu
 
 ## Installation
 
-Copy the built `ox_simulator` output folder into the wrapper/runtime `drivers` directory. Example:
+Copy the built `simulator` output folder into the wrapper/runtime `drivers` directory. Example:
 
 ```text
 ox/
@@ -75,7 +75,7 @@ ox/
     win-x64/
       bin/
         drivers/
-          ox-simulator/
+          simulator/
             ox_driver.dll
 ```
 
