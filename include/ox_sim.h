@@ -1,18 +1,17 @@
 #pragma once
 
-// ox_sim.h - OxDriver simulator control API
+// ox_sim.h - ox simulator control API
 //
 // Provides programmatic access to the simulator's state for automation,
-// testing, and GUI tooling. Both the REST server and the simulator GUI
-// are built on top of this API, so all state is always in sync.
+// testing, and GUI tooling.
 //
-// Mirrors the REST API resource model:
-//   Status     -> GET /v1/status
-//   Views      -> GET /v1/views/{eye}
-//   Profile    -> GET/PUT /v1/profile
-//   Devices    -> GET/PUT /v1/devices/{userPath}
-//   Components -> GET /v1/profile (components array)
-//   Inputs     -> GET/PUT /v1/inputs/{bindingPath}
+// Uses the following resource model:
+//   Status
+//   Views
+//   Profile
+//   Devices
+//   Components
+//   Inputs
 //
 // Threading: all functions are safe to call from any thread.
 // All output string buffers must be null-terminated on success.
