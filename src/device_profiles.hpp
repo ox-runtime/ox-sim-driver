@@ -1,15 +1,6 @@
 #pragma once
 
-// device_profiles.hpp - Static device profile definitions for the OxDriver simulator.
-//
-// Profiles are immutable, statically allocated singletons (Meyer's pattern).
-// The sim runtime holds live state (poses, input values) separately; these
-// definitions only describe what hardware exists and what inputs it exposes.
-//
-// Internal fields on ComponentDef (hand_restriction, linked_vec2_path, linked_axis)
-// are runtime implementation details and are not exposed in the public C API.
-// ox_sim_get_component_info() maps ComponentDef -> OxSimComponentInfo via
-// ToPublicComponentType(), stripping internal fields at the boundary.
+// These definitions describe what hardware exists and what inputs it exposes.
 
 #include <ox_driver.h>
 #include <ox_sim.h>
