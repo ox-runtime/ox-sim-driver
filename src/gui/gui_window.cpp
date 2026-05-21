@@ -16,6 +16,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "clickable_slider.hpp"
 #include "device_profiles.hpp"
 #include "imgui_impl_opengl3.h"
 #include "math.hpp"
@@ -28,6 +29,14 @@ namespace ox_sim {
 namespace {
 
 namespace sim_math = ox_sim::math;
+
+ClickableSlider g_clickable_slider;
+
+bool UsesClickableSlider(const char* component_path) {
+    return component_path != nullptr && (std::strcmp(component_path, "/input/trigger/value") == 0 ||
+                                         std::strcmp(component_path, "/input/squeeze/value") == 0 ||
+                                         std::strcmp(component_path, "/input/squeeze/force") == 0);
+}
 
 std::string WindowTitle() {
     std::string title = "ox simulator";
@@ -666,9 +675,15 @@ void GuiWindow::RenderComponentControl(const DeviceDef& device, const ComponentD
             // Linked axis components (thumbstick/trackpad x-y) have a -1..1 range;
             // all other FLOAT components (triggers, grips) use 0..1.
             const float v_min = (component.linked_vec2_path != nullptr) ? -1.0f : 0.0f;
-            ImGui::SetNextItemWidth(150.0f);
-            if (ImGui::SliderFloat("##value", &value, v_min, 1.0f, "%.2f")) {
-                ox_sim_set_input_float(device.user_path, component.path, value);
+            if (component.linked_vec2_path == nullptr && UsesClickableSlider(component.path)) {
+                if (g_clickable_slider.SliderFloat("##value", &value, v_min, 1.0f, "%.2f")) {
+                    ox_sim_set_input_float(device.user_path, component.path, value);
+                }
+            } else {
+                ImGui::SetNextItemWidth(150.0f);
+                if (ImGui::SliderFloat("##value", &value, v_min, 1.0f, "%.2f")) {
+                    ox_sim_set_input_float(device.user_path, component.path, value);
+                }
             }
             break;
         }
@@ -715,17 +730,8 @@ void GuiWindow::RenderRotationControl(const DeviceDef& device, int device_index,
     const float pad = 8.0f;
     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - pad);
     if (ImGui::DragFloat3("##Rotation", rot, 1.0f, -FLT_MAX, FLT_MAX, "%.2f°")) {
-        const float dp = glm::radians(rot[0] - ec.euler.x);
-        const float dy = glm::radians(rot[1] - ec.euler.y);
-        const float dr = glm::radians(rot[2] - ec.euler.z);
-
-        glm::quat orientation = sim_math::ToGlm(pose.orientation);
-        orientation = sim_math::RotateWorld(orientation, sim_math::kLocalRight, dp);
-        orientation = sim_math::RotateWorld(orientation, sim_math::kLocalUp, dy);
-        orientation = sim_math::RotateWorld(orientation, sim_math::kWorldZ, dr);
-        pose.orientation = sim_math::ToXr(orientation);
-
         ec.euler = {rot[0], rot[1], rot[2]};
+        pose.orientation = sim_math::QuaternionFromEulerDegrees(ec.euler);
         ec.quat = pose.orientation;
         OxDeviceState state = {};
         state.pose = pose;
@@ -897,8 +903,10 @@ bool GuiWindow::CopyCurrentPreviewToClipboard() {
     }
 
     if (preview_eye_selection_ == 2) {
-        const bool has_left = HasPreviewPixels(preview_view_infos_[0], preview_pixels_[0], preview_width_, preview_height_);
-        const bool has_right = HasPreviewPixels(preview_view_infos_[1], preview_pixels_[1], preview_width_, preview_height_);
+        const bool has_left =
+            HasPreviewPixels(preview_view_infos_[0], preview_pixels_[0], preview_width_, preview_height_);
+        const bool has_right =
+            HasPreviewPixels(preview_view_infos_[1], preview_pixels_[1], preview_width_, preview_height_);
         if (!has_left && !has_right) {
             status_message_ = "No eye texture available to copy";
             return false;

@@ -14,6 +14,8 @@ add_executable(ox_sim_tests
     test_profiles.cpp
     test_devices.cpp
     test_inputs.cpp
+    test_clickable_slider.cpp
+    test_math.cpp
     test_frame.cpp
     ../src/ox_sim.cpp
 )
@@ -23,9 +25,10 @@ target_include_directories(ox_sim_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${GUI_INCLUDE_DIRS}
 )
 
-target_link_libraries(ox_sim_tests PRIVATE ox_driver_api GTest::gtest GTest::gtest_main)
+target_link_libraries(ox_sim_tests PRIVATE ox_driver_api GTest::gtest GTest::gtest_main glm::glm ${GUI_LIBRARIES})
 
 set_target_properties(ox_sim_tests PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin/tests

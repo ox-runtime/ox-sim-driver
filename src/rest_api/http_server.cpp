@@ -115,7 +115,7 @@ bool split_input_path(const std::string& path, std::string* user_path, std::stri
     }
 
     if (user_path) {
-        *user_path = "/" + path.substr(0, input_pos);
+        *user_path = path.substr(0, input_pos);
     }
     if (component_path) {
         *component_path = path.substr(input_pos);

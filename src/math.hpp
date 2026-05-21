@@ -43,6 +43,11 @@ inline XrVector3f EulerDegrees(const XrQuaternionf& quaternion) {
     return {euler.x, euler.y, euler.z};
 }
 
+inline XrQuaternionf QuaternionFromEulerDegrees(const XrVector3f& euler_degrees) {
+    const glm::vec3 euler_radians = glm::radians(glm::vec3(euler_degrees.x, euler_degrees.y, euler_degrees.z));
+    return ToXr(glm::quat(euler_radians));
+}
+
 inline float ForwardElevationDegrees(const glm::quat& orientation) {
     const glm::vec3 forward = Forward(orientation);
     return glm::degrees(std::atan2(forward.y, glm::length(glm::vec2(forward.x, forward.z))));

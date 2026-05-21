@@ -55,6 +55,8 @@ If `OX_SIM_BUILD_EXAMPLES` is enabled, the C API example is also built under `bu
 - When loaded as a driver, it starts the simulator GUI and the HTTP API server automatically.
 - When used through the C API alone, it does not start the GUI and the HTTP API server automatically.
 - The active profile can be changed at runtime through the GUI, the REST API, or the C API.
+- Device rotation edits in the GUI are absolute pitch/yaw/roll values, so returning all three axes to `0` restores the identity orientation.
+- Trigger and squeeze sliders in the GUI include a small filled-circle hold button that ramps the value to `1.0`, holds it while pressed, and releases it back to `0.0` when released.
 - The eye preview supports cursor coordinate readout, FPS-style drag-to-look navigation, yaw-relative `WASD` movement with world-up `R/F`, arrow-key pitch/yaw that ignores roll, and copying the current preview image to the clipboard from the preview overlay button.
 - View metadata and pixel transfer are split in the C API: call `ox_sim_get_view_info()` first to get `data_size`, then allocate a caller-owned RGBA8 buffer and call `ox_sim_get_view()` to copy the pixels.
 
