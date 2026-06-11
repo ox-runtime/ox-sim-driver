@@ -4,7 +4,6 @@ import ctypes
 from ctypes import *
 from pathlib import Path
 
-
 # ============================================================
 # Load library (OX_PATH)
 # ============================================================
@@ -136,12 +135,26 @@ class XrVector2f(Structure):
     _fields_ = [("x", c_float), ("y", c_float)]
 
 
-# Approximation of OxDeviceState (only fields we use)
+class XrVector3f(Structure):
+    _fields_ = [("x", c_float), ("y", c_float), ("z", c_float)]
+
+
+class XrQuaternionf(Structure):
+    _fields_ = [("x", c_float), ("y", c_float), ("z", c_float), ("w", c_float)]
+
+
+class XrPosef(Structure):
+    _fields_ = [
+        ("orientation", XrQuaternionf),
+        ("position", XrVector3f),
+    ]
+
+
 class OxDeviceState(Structure):
     _fields_ = [
-        ("position", c_float * 3),
-        ("orientation", c_float * 4),
-        ("active", c_uint32),
+        ("user_path", c_char * 256),
+        ("pose", XrPosef),
+        ("is_active", c_uint32),
     ]
 
 
@@ -318,21 +331,25 @@ class Device:
         s = self._get_state()
 
         if position is not None:
-            for i in range(3):
-                s.position[i] = position[i]
+            s.pose.position.x = position[0]
+            s.pose.position.y = position[1]
+            s.pose.position.z = position[2]
 
         if orientation is not None:
-            for i in range(4):
-                s.orientation[i] = orientation[i]
+            s.pose.orientation.x = orientation[0]
+            s.pose.orientation.y = orientation[1]
+            s.pose.orientation.z = orientation[2]
+            s.pose.orientation.w = orientation[3]
 
         if active is not None:
-            s.active = int(active)
+            s.is_active = int(active)
 
         _check(_lib.ox_sim_set_device(self.user_path.encode(), byref(s)))
 
     @property
     def position(self):
-        return tuple(self._get_state().position)
+        position = self._get_state().pose.position
+        return (position.x, position.y, position.z)
 
     @position.setter
     def position(self, value):
@@ -340,7 +357,8 @@ class Device:
 
     @property
     def orientation(self):
-        return tuple(self._get_state().orientation)
+        orientation = self._get_state().pose.orientation
+        return (orientation.x, orientation.y, orientation.z, orientation.w)
 
     @orientation.setter
     def orientation(self, value):
@@ -348,7 +366,7 @@ class Device:
 
     @property
     def active(self):
-        return bool(self._get_state().active)
+        return bool(self._get_state().is_active)
 
     @active.setter
     def active(self, value):
