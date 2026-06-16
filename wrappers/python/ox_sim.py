@@ -4,15 +4,15 @@ import ctypes
 from ctypes import *
 from pathlib import Path
 
-# ============================================================
-# Load library (OX_PATH)
-# ============================================================
-
 
 def _load_library():
-    ox_path = os.getenv("OX_PATH")
-    if not ox_path:
-        raise RuntimeError("OX_PATH not set")
+    runtime_path = _get_openxr_runtime()
+    if runtime_path and "ox_runtime.json" in runtime_path:
+        ox_path = os.path.dirname(runtime_path)
+    else:
+        raise RuntimeError(
+            "Couldn't find an active ox runtime! Please set the XR_RUNTIME_JSON environment variable to /path/to/ox/ox_runtime.json."
+        )
 
     base = Path(ox_path) / "drivers" / "simulator"
 
@@ -36,11 +36,7 @@ def _load_library():
 _lib = _load_library()
 
 
-# ============================================================
 # Errors
-# ============================================================
-
-
 class OxSimError(Exception):
     pass
 
@@ -85,11 +81,7 @@ def _check(res):
         raise error_type(f"OxSim error: {res}")
 
 
-# ============================================================
-# Structs (matching ox_sim.h)
-# ============================================================
-
-
+# Structs
 class OxSimStatus(Structure):
     _fields_ = [
         ("session_state", c_int),
@@ -158,10 +150,7 @@ class OxDeviceState(Structure):
     ]
 
 
-# ============================================================
-# Function signatures
-# ============================================================
-
+# Function signatures (synced with ox_sim.h)
 _lib.ox_sim_initialize.restype = c_int
 
 _lib.ox_sim_shutdown.restype = None
@@ -224,11 +213,7 @@ _lib.ox_sim_set_input_vector2f.argtypes = [c_char_p, c_char_p, POINTER(XrVector2
 _lib.ox_sim_set_input_vector2f.restype = c_int
 
 
-# ============================================================
 # Simulator
-# ============================================================
-
-
 class Simulator:
     def __init__(self):
         _check(_lib.ox_sim_initialize())
@@ -236,8 +221,6 @@ class Simulator:
 
     def shutdown(self):
         _lib.ox_sim_shutdown()
-
-    # ---------------- Status ----------------
 
     @property
     def status(self):
@@ -248,8 +231,6 @@ class Simulator:
             "active": bool(s.session_active),
             "fps": s.fps,
         }
-
-    # ---------------- Profile ----------------
 
     @property
     def profile(self):
@@ -270,8 +251,6 @@ class Simulator:
             "manufacturer": info.manufacturer.decode(),
             "interaction_profile": info.interaction_profile.decode(),
         }
-
-    # ---------------- Devices ----------------
 
     def _load_devices(self):
         if self._device_cache is not None:
@@ -299,19 +278,13 @@ class Simulator:
         except KeyError as exc:
             raise OxSimDeviceNotFoundError(f"Device not found: {user_path}") from exc
 
-    # ---------------- Views ----------------
-
     def views(self):
         count = c_uint32()
         _check(_lib.ox_sim_get_view_count(byref(count)))
         return [View(self, i) for i in range(count.value)]
 
 
-# ============================================================
 # Device
-# ============================================================
-
-
 class Device:
     def __init__(self, sim, info: OxSimDeviceInfo):
         self.sim = sim
@@ -320,8 +293,7 @@ class Device:
         self.always_active = bool(info.always_active)
         self._components = None
 
-    # ---------------- Pose ----------------
-
+    # Pose
     def _get_state(self):
         s = OxDeviceState()
         _check(_lib.ox_sim_get_device(self.user_path.encode(), byref(s)))
@@ -372,8 +344,7 @@ class Device:
     def active(self, value):
         self._set_state(active=value)
 
-    # ---------------- Inputs ----------------
-
+    # Inputs
     def _load_components(self):
         if self._components is not None:
             return
@@ -430,11 +401,7 @@ class Device:
             return (v.x, v.y)
 
 
-# ============================================================
 # View
-# ============================================================
-
-
 class View:
     def __init__(self, sim, index):
         self.sim = sim
@@ -450,3 +417,64 @@ class View:
         buf = (c_uint8 * vi.data_size)()
         _check(_lib.ox_sim_get_view(self.index, buf, vi.data_size))
         return bytes(buf), vi.width, vi.height
+
+
+# Utilities
+
+
+def _get_openxr_runtime():
+    """
+    Returns the path (or None) to the active OpenXR runtime JSON manifest.
+    """
+    import platform
+
+    env_override = os.environ.get("XR_RUNTIME_JSON")
+    if env_override:
+        return str(Path(env_override).resolve())
+
+    current_os = platform.system()
+
+    if current_os == "Linux":
+        # Check user-space config first
+        xdg = os.environ.get("XDG_CONFIG_HOME")
+        if xdg:
+            config_dir = Path(xdg)
+        else:
+            home = os.environ.get("HOME")
+            config_dir = Path(home) / ".config" if home else None
+
+        if config_dir:
+            user_link = config_dir / "openxr" / "1" / "active_runtime.json"
+            if user_link.is_symlink() or user_link.exists():
+                return str(user_link.resolve())
+
+        # Fallback to system-wide Linux OpenXR location
+        system_link = Path("/etc/openxr/1/active_runtime.json")
+        if system_link.is_symlink() or system_link.exists():
+            return str(system_link.resolve())
+
+    elif current_os == "Darwin":
+        mac_link = Path("/usr/local/share/openxr/1/active_runtime.json")
+        if mac_link.is_symlink() or mac_link.exists():
+            return str(mac_link.resolve())
+
+    elif current_os == "Windows":
+        import winreg
+
+        reg_path = r"SOFTWARE\Khronos\OpenXR\1"
+
+        # Check HKEY_LOCAL_MACHINE (System wide)
+        try:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, reg_path) as key:
+                value, _ = winreg.QueryValueEx(key, "ActiveRuntime")
+                return str(Path(value).resolve())
+        except FileNotFoundError:
+            pass
+
+        # Check HKEY_CURRENT_USER (User override)
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, reg_path) as key:
+                value, _ = winreg.QueryValueEx(key, "ActiveRuntime")
+                return str(Path(value).resolve())
+        except FileNotFoundError:
+            pass

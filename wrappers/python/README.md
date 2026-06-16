@@ -6,31 +6,18 @@ A minimal, Pythonic wrapper around the `ox_sim` C API for controlling the ox sim
 
 - Python 3.8+
 - [ox runtime](https://github.com/ox-runtime/ox) installed
-- `OX_PATH` environment variable set
+- ox runtime set as the active OpenXR runtime (using the `XR_RUNTIME_JSON` environment variable, or OS-specific configuration).
 
 ---
 
 ## Setup
 
-Set `OX_USE_SIMULATOR=1`, and `OX_PATH` to your ox runtime installation directory.
+Set `OX_USE_SIMULATOR=1`:
+- Linux/macOS: `export OX_USE_SIMULATOR=1`
+- Windows Powershell: `$env:OX_USE_SIMULATOR="1"`
+- Windows Command (DOS): `set OX_USE_SIMULATOR=1`
 
-### Linux / macOS
-```bash
-export OX_USE_SIMULATOR=1
-export OX_PATH=/path/to/ox
-```
-
-### Windows (PowerShell)
-```powershell
-$env:OX_USE_SIMULATOR="1"
-$env:OX_PATH="C:\path\to\ox"
-```
-
-The wrapper automatically loads the simulator driver from:
-
-```
-$OX_PATH/drivers/simulator/
-```
+`ox_sim.py` automatically detects the ox runtime directory (from the active OpenXR runtime), and loads the simulator driver from `/path/to/ox_runtime/drivers/simulator/`.
 
 ---
 
