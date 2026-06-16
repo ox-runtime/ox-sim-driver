@@ -33,6 +33,64 @@ def _load_library():
     return ctypes.CDLL(str(path))
 
 
+def _get_openxr_runtime():
+    """
+    Returns the path (or None) to the active OpenXR runtime JSON manifest.
+    """
+    import platform
+
+    env_override = os.environ.get("XR_RUNTIME_JSON")
+    if env_override:
+        return str(Path(env_override).resolve())
+
+    current_os = platform.system()
+
+    if current_os == "Linux":
+        # Check user-space config first
+        xdg = os.environ.get("XDG_CONFIG_HOME")
+        if xdg:
+            config_dir = Path(xdg)
+        else:
+            home = os.environ.get("HOME")
+            config_dir = Path(home) / ".config" if home else None
+
+        if config_dir:
+            user_link = config_dir / "openxr" / "1" / "active_runtime.json"
+            if user_link.is_symlink() or user_link.exists():
+                return str(user_link.resolve())
+
+        # Fallback to system-wide Linux OpenXR location
+        system_link = Path("/etc/openxr/1/active_runtime.json")
+        if system_link.is_symlink() or system_link.exists():
+            return str(system_link.resolve())
+
+    elif current_os == "Darwin":
+        mac_link = Path("/usr/local/share/openxr/1/active_runtime.json")
+        if mac_link.is_symlink() or mac_link.exists():
+            return str(mac_link.resolve())
+
+    elif current_os == "Windows":
+        import winreg
+
+        reg_path = r"SOFTWARE\Khronos\OpenXR\1"
+
+        # Check HKEY_LOCAL_MACHINE (System wide)
+        try:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, reg_path) as key:
+                value, _ = winreg.QueryValueEx(key, "ActiveRuntime")
+                return str(Path(value).resolve())
+        except FileNotFoundError:
+            pass
+
+        # Check HKEY_CURRENT_USER (User override)
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, reg_path) as key:
+                value, _ = winreg.QueryValueEx(key, "ActiveRuntime")
+                return str(Path(value).resolve())
+        except FileNotFoundError:
+            pass
+
+
 _lib = _load_library()
 
 
@@ -417,64 +475,3 @@ class View:
         buf = (c_uint8 * vi.data_size)()
         _check(_lib.ox_sim_get_view(self.index, buf, vi.data_size))
         return bytes(buf), vi.width, vi.height
-
-
-# Utilities
-
-
-def _get_openxr_runtime():
-    """
-    Returns the path (or None) to the active OpenXR runtime JSON manifest.
-    """
-    import platform
-
-    env_override = os.environ.get("XR_RUNTIME_JSON")
-    if env_override:
-        return str(Path(env_override).resolve())
-
-    current_os = platform.system()
-
-    if current_os == "Linux":
-        # Check user-space config first
-        xdg = os.environ.get("XDG_CONFIG_HOME")
-        if xdg:
-            config_dir = Path(xdg)
-        else:
-            home = os.environ.get("HOME")
-            config_dir = Path(home) / ".config" if home else None
-
-        if config_dir:
-            user_link = config_dir / "openxr" / "1" / "active_runtime.json"
-            if user_link.is_symlink() or user_link.exists():
-                return str(user_link.resolve())
-
-        # Fallback to system-wide Linux OpenXR location
-        system_link = Path("/etc/openxr/1/active_runtime.json")
-        if system_link.is_symlink() or system_link.exists():
-            return str(system_link.resolve())
-
-    elif current_os == "Darwin":
-        mac_link = Path("/usr/local/share/openxr/1/active_runtime.json")
-        if mac_link.is_symlink() or mac_link.exists():
-            return str(mac_link.resolve())
-
-    elif current_os == "Windows":
-        import winreg
-
-        reg_path = r"SOFTWARE\Khronos\OpenXR\1"
-
-        # Check HKEY_LOCAL_MACHINE (System wide)
-        try:
-            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, reg_path) as key:
-                value, _ = winreg.QueryValueEx(key, "ActiveRuntime")
-                return str(Path(value).resolve())
-        except FileNotFoundError:
-            pass
-
-        # Check HKEY_CURRENT_USER (User override)
-        try:
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, reg_path) as key:
-                value, _ = winreg.QueryValueEx(key, "ActiveRuntime")
-                return str(Path(value).resolve())
-        except FileNotFoundError:
-            pass
