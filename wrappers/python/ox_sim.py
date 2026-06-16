@@ -14,6 +14,9 @@ def _load_library():
             "Couldn't find an active ox runtime! Please set the XR_RUNTIME_JSON environment variable to /path/to/ox/ox_runtime.json."
         )
 
+    if os.getenv("OX_USE_SIMULATOR") is None:
+        raise RuntimeError("Please set the OX_USE_SIMULATOR environment variable to 1, in order to use ox_sim.py.")
+
     base = Path(ox_path) / "drivers" / "simulator"
 
     names = {
