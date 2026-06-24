@@ -1,31 +1,27 @@
-# ox_sim (Python Wrapper)
+# ox_sim
 
 A minimal, Pythonic wrapper around the `ox_sim` C API for controlling the ox simulator.
+
+The ox runtime will be loaded into the running application process, avoiding cross-process communication (i.e. no IPC/HTTP).
 
 ## Requirements
 
 - Python 3.8+
-- [ox runtime](https://github.com/ox-runtime/ox) installed
-- ox runtime set as the active OpenXR runtime (using the `XR_RUNTIME_JSON` environment variable, or OS-specific configuration).
-
----
+- [ox runtime](https://github.com/ox-runtime/ox) installed.
+- ox runtime set as the active OpenXR runtime (or use the `XR_RUNTIME_JSON` environment variable).
 
 ## Setup
 
-Set `OX_USE_SIMULATOR=1`:
+Set the `OX_USE_SIMULATOR` environment variable:
 - Linux/macOS: `export OX_USE_SIMULATOR=1`
 - Windows Powershell: `$env:OX_USE_SIMULATOR="1"`
 - Windows Command (DOS): `set OX_USE_SIMULATOR=1`
-
-`ox_sim.py` automatically detects the ox runtime directory (from the active OpenXR runtime), and loads the simulator driver from `/path/to/ox_runtime/drivers/simulator/`.
-
----
 
 ## Quick Example
 
 ```python
 import time
-from oxsim import Simulator
+from ox_sim import Simulator
 
 sim = Simulator()
 
@@ -113,33 +109,3 @@ All simulator API failures raise `OxSimError` or a subclass.
 | `OxSimDeviceNotFoundError` | The requested device path does not exist. |
 | `OxSimComponentNotFoundError` | The requested component path does not exist for the device. |
 | `OxSimError` | Base class for all wrapper errors, including unknown future error codes. |
-
-
-## Note for testing Blender
-
-Blender owns the main thread, so we can't sleep on the main thread. Instead, we'll use a Blender [App Timer](https://docs.blender.org/api/current/bpy.app.timers.html) with a simple state machine.
-
-```python
-next_state = 'SET'  # or 'TEST'
-prev_val = None
-
-def do_timer():
-    global next_state, prev_val
-
-    session_state = bpy.context.window_manager.xr_session_state
-
-    if next_state == 'SET':
-        left_controller.set_input("/input/thumbstick/y", 1.0)  # from ox_sim API
-        prev_val = Vector(session_state.viewer_pose_location)
-        next_state = 'TEST'
-        return 0.5
-
-    if next_state == 'TEST':
-        curr_pos = Vector(session_state.viewer_pose_location)
-        assert curr_pos.y > prev_val.y
-
-def main():
-    start_xr()  # by calling bpy.ops.wm.xr_session_toggle() with a temp_override for area
-
-    bpy.app.timers.register(do_timer, first_interval=0.1)
-```
