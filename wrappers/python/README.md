@@ -2,7 +2,7 @@
 
 A minimal, Pythonic wrapper around the `ox_sim` C API for controlling the ox simulator.
 
-The ox runtime will be loaded into the running application process, avoiding cross-process communication (i.e. no IPC/HTTP).
+The ox runtime will run inside the running Blender process, avoiding cross-process communication (i.e. no IPC/HTTP).
 
 ## Requirements
 
